@@ -1,0 +1,357 @@
+const { Client, GatewayIntentBits, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+
+const TOKEN = process.env.TIER_TEST_TOKEN;
+const CLIENT_ID = process.env.TIER_CLIENT_ID;
+const GUILD_ID = process.env.TIER_GUILD_ID;
+
+// Data stores
+let testQueue = {};      // { kit: [playerId, playerId, ...] }
+let activeTests = {};    // { channelId: { playerId, testerId, kit, startTime } }
+let testResults = [];    // array of result objects
+
+// Kits (same as your queue bot)
+const GAMEMODES = [
+    { name: '💧 Hydro', value: 'hydro' },
+    { name: '🌍 SMP', value: 'smp' },
+    { name: '💎 Diapot', value: 'diapot' },
+    { name: '🪓 No Axe', value: 'noaxe' },
+    { name: '⚔️ Axe', value: 'axe' },
+    { name: '🏹 UHC', value: 'uhc' },
+    { name: '🦅 Elytra Mace', value: 'elytramace' },
+    { name: '🧪 NethPot', value: 'nethpot' },
+    { name: '💥 Crystal', value: 'crystal' },
+    { name: '🔱 Spear Mace', value: 'spearmace' }
+];
+
+// Helper: check if member has Tester role or Admin
+async function isTester(member) {
+    return member.roles.cache.some(r => r.name === 'Tester') || member.permissions.has('Administrator');
+}
+
+// Create private channel for test
+async function createTestChannel(guild, playerId, testerId, kit) {
+    let category = guild.channels.cache.find(c => c.name === '🧪｜TESTING' && c.type === 4);
+    if (!category) {
+        category = await guild.channels.create({
+            name: '🧪｜TESTING',
+            type: 4,
+            permissionOverwrites: [{ id: guild.id, deny: ['ViewChannel'] }]
+        });
+    }
+    const channel = await guild.channels.create({
+        name: `test-${kit}-${playerId.slice(-4)}`,
+        type: 0,
+        parent: category.id,
+        permissionOverwrites: [
+            { id: guild.id, deny: ['ViewChannel'] },
+            { id: playerId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+            { id: testerId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
+        ]
+    });
+    activeTests[channel.id] = {
+        playerId: playerId,
+        testerId: testerId,
+        kit: kit,
+        startTime: Date.now()
+    };
+    return channel;
+}
+
+client.once('ready', async () => {
+    console.log(`✅ Tier Test Bot logged in as ${client.user.tag}`);
+    await registerCommands();
+    console.log('✅ Commands registered');
+});
+
+async function registerCommands() {
+    const commands = [
+        // Player commands
+        {
+            name: 'test',
+            description: 'Join, leave, or check test queue status',
+            options: [
+                {
+                    name: 'action',
+                    description: 'What to do',
+                    type: 3,
+                    required: true,
+                    choices: [
+                        { name: 'join', value: 'join' },
+                        { name: 'leave', value: 'leave' },
+                        { name: 'status', value: 'status' }
+                    ]
+                },
+                {
+                    name: 'kit',
+                    description: 'Kit to be tested on (required for join)',
+                    type: 3,
+                    required: false,
+                    choices: GAMEMODES
+                }
+            ]
+        },
+        // Tester commands
+        {
+            name: 'testnext',
+            description: '[Tester] Take the next player from the test queue'
+        },
+        {
+            name: 'testselect',
+            description: '[Tester] Select a specific player from the test queue',
+            options: [
+                { name: 'player', type: 6, required: true, description: 'Player to test' },
+                { name: 'kit', type: 3, required: true, description: 'Kit to test', choices: GAMEMODES }
+            ]
+        },
+        {
+            name: 'testresult',
+            description: '[Tester] Submit results for an active test (use in test channel)'
+        },
+        {
+            name: 'testhistory',
+            description: '[Tester] View test history of a player',
+            options: [{ name: 'player', type: 6, required: true }]
+        },
+        {
+            name: 'teststats',
+            description: '[Tester] Show current test queue sizes'
+        }
+    ];
+
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+}
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    // /test (player)
+    if (interaction.commandName === 'test') {
+        const action = interaction.options.getString('action');
+        const userId = interaction.user.id;
+
+        if (action === 'join') {
+            const kit = interaction.options.getString('kit');
+            if (!kit) return interaction.reply({ content: '❌ Please specify a kit with `kit:`', ephemeral: true });
+            if (!GAMEMODES.find(k => k.value === kit)) return interaction.reply({ content: '❌ Invalid kit.', ephemeral: true });
+
+            // Already in any test queue?
+            let already = false;
+            for (let k in testQueue) if (testQueue[k]?.includes(userId)) already = true;
+            if (already) return interaction.reply({ content: '❌ You are already in a test queue. Use `/test leave`.', ephemeral: true });
+
+            if (!testQueue[kit]) testQueue[kit] = [];
+            testQueue[kit].push(userId);
+            const pos = testQueue[kit].length;
+            await interaction.reply({ content: `✅ You joined the **${kit}** test queue. Position: ${pos}.`, ephemeral: true });
+        } 
+        else if (action === 'leave') {
+            let removed = false;
+            for (let k in testQueue) {
+                const idx = testQueue[k]?.indexOf(userId);
+                if (idx !== -1) {
+                    testQueue[k].splice(idx, 1);
+                    removed = true;
+                    break;
+                }
+            }
+            await interaction.reply({ content: removed ? '✅ Left test queue.' : '❌ You are not in any test queue.', ephemeral: true });
+        } 
+        else if (action === 'status') {
+            let msg = '**📋 Your test queue status:**\n';
+            let inQueue = false;
+            for (let k in testQueue) {
+                const idx = testQueue[k]?.indexOf(userId);
+                if (idx !== -1) {
+                    msg += `\n**${k}**: position ${idx + 1}`;
+                    inQueue = true;
+                }
+            }
+            if (!inQueue) msg = 'You are not in any test queue.';
+            await interaction.reply({ content: msg, ephemeral: true });
+        }
+    }
+
+    // /testnext (tester)
+    if (interaction.commandName === 'testnext') {
+        if (!await isTester(interaction.member)) return interaction.reply({ content: '❌ Only testers can use this.', ephemeral: true });
+
+        let selectedKit = null;
+        let selectedPlayer = null;
+        for (let kit in testQueue) {
+            if (testQueue[kit] && testQueue[kit].length > 0) {
+                selectedKit = kit;
+                selectedPlayer = testQueue[kit].shift();
+                break;
+            }
+        }
+        if (!selectedPlayer) return interaction.reply({ content: '📭 No one is in the test queue.', ephemeral: true });
+
+        const channel = await createTestChannel(interaction.guild, selectedPlayer, interaction.user.id, selectedKit);
+        await channel.send({
+            content: `**🔍 Tier Test Started**\n━━━━━━━━━━━━━━━━━━━━\n📦 **Kit:** ${selectedKit}\n👤 **Player:** <@${selectedPlayer}>\n🕒 **Start time:** <t:${Math.floor(Date.now()/1000)}:F>\n━━━━━━━━━━━━━━━━━━━━\nPlease conduct the test. When finished, use \`/testresult\` in this channel.`
+        });
+        await channel.send(`<@${selectedPlayer}> <@${interaction.user.id}>`);
+        await interaction.reply({ content: `✅ Test started. Private channel created: ${channel}`, ephemeral: true });
+    }
+
+    // /testselect (tester)
+    if (interaction.commandName === 'testselect') {
+        if (!await isTester(interaction.member)) return interaction.reply({ content: '❌ Only testers can use this.', ephemeral: true });
+
+        const targetPlayer = interaction.options.getUser('player');
+        const kit = interaction.options.getString('kit');
+
+        if (!testQueue[kit] || !testQueue[kit].includes(targetPlayer.id)) {
+            return interaction.reply({ content: `❌ ${targetPlayer.username} is not in the ${kit} test queue.`, ephemeral: true });
+        }
+        // Remove from queue
+        testQueue[kit] = testQueue[kit].filter(id => id !== targetPlayer.id);
+
+        const channel = await createTestChannel(interaction.guild, targetPlayer.id, interaction.user.id, kit);
+        await channel.send({
+            content: `**🔍 Tier Test Started**\n━━━━━━━━━━━━━━━━━━━━\n📦 **Kit:** ${kit}\n👤 **Player:** ${targetPlayer.tag}\n🕒 **Start time:** <t:${Math.floor(Date.now()/1000)}:F>\n━━━━━━━━━━━━━━━━━━━━\nPlease conduct the test. When finished, use \`/testresult\` in this channel.`
+        });
+        await channel.send(`<@${targetPlayer.id}> <@${interaction.user.id}>`);
+        await interaction.reply({ content: `✅ Test started with ${targetPlayer.tag}.`, ephemeral: true });
+    }
+
+    // /testresult (tester) – opens a modal
+    if (interaction.commandName === 'testresult') {
+        if (!await isTester(interaction.member)) return interaction.reply({ content: '❌ Only testers can use this.', ephemeral: true });
+
+        const channelId = interaction.channelId;
+        if (!activeTests[channelId]) return interaction.reply({ content: '❌ This is not an active test channel.', ephemeral: true });
+
+        const modal = new ModalBuilder()
+            .setCustomId('testResultModal')
+            .setTitle('Submit Test Result');
+
+        const totemInput = new TextInputBuilder()
+            .setCustomId('totems')
+            .setLabel('How many totems did the player pop?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+        const cpsInput = new TextInputBuilder()
+            .setCustomId('cps')
+            .setLabel('Average CPS (click speed)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+        const tierInput = new TextInputBuilder()
+            .setCustomId('tier')
+            .setLabel('Assigned Tier (S, A, B, C, D)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+        const notesInput = new TextInputBuilder()
+            .setCustomId('notes')
+            .setLabel('Additional notes (optional)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(totemInput),
+            new ActionRowBuilder().addComponents(cpsInput),
+            new ActionRowBuilder().addComponents(tierInput),
+            new ActionRowBuilder().addComponents(notesInput)
+        );
+        await interaction.showModal(modal);
+    }
+
+    // /testhistory (tester)
+    if (interaction.commandName === 'testhistory') {
+        if (!await isTester(interaction.member)) return interaction.reply({ content: '❌ Only testers can use this.', ephemeral: true });
+
+        const target = interaction.options.getUser('player');
+        const playerResults = testResults.filter(r => r.playerId === target.id);
+        if (playerResults.length === 0) return interaction.reply({ content: `📭 No test history for ${target.username}.`, ephemeral: true });
+
+        let msg = `**📜 Test History for ${target.username}**\n━━━━━━━━━━━━━━━━━━━━\n`;
+        playerResults.forEach(r => {
+            msg += `\n📦 **${r.kit}** | Tier: **${r.tier}** | Totems: ${r.totems} | CPS: ${r.cps}\n🕒 ${new Date(r.date).toLocaleString()} | Tester: <@${r.testerId}>\n📝 Notes: ${r.notes || 'None'}\n━━━━━━━━━━━━━━━━━━━━`;
+        });
+        await interaction.reply({ content: msg, ephemeral: true });
+    }
+
+    // /teststats (tester)
+    if (interaction.commandName === 'teststats') {
+        if (!await isTester(interaction.member)) return interaction.reply({ content: '❌ Only testers can use this.', ephemeral: true });
+
+        let msg = '**📊 Test Queue Stats**\n━━━━━━━━━━━━━━━━━━━━\n';
+        let any = false;
+        for (let kit in testQueue) {
+            if (testQueue[kit] && testQueue[kit].length > 0) {
+                any = true;
+                msg += `\n**${kit}**: ${testQueue[kit].length} waiting`;
+            }
+        }
+        if (!any) msg += '\nNo one in queue.';
+        await interaction.reply({ content: msg, ephemeral: true });
+    }
+});
+
+// Handle modal submission
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isModalSubmit()) return;
+    if (interaction.customId === 'testResultModal') {
+        const channelId = interaction.channelId;
+        const testData = activeTests[channelId];
+        if (!testData) return interaction.reply({ content: '❌ This test channel is no longer active.', ephemeral: true });
+
+        const totems = interaction.fields.getTextInputValue('totems');
+        const cps = interaction.fields.getTextInputValue('cps');
+        const tier = interaction.fields.getTextInputValue('tier').toUpperCase();
+        const notes = interaction.fields.getTextInputValue('notes') || 'None';
+
+        // Save result
+        const result = {
+            playerId: testData.playerId,
+            testerId: testData.testerId,
+            kit: testData.kit,
+            tier: tier,
+            totems: totems,
+            cps: cps,
+            notes: notes,
+            date: new Date().toISOString()
+        };
+        testResults.push(result);
+
+        // Anti-collusion check
+        const mutualTests = testResults.filter(r =>
+            (r.testerId === testData.testerId && r.playerId === testData.playerId) ||
+            (r.testerId === testData.playerId && r.playerId === testData.testerId)
+        );
+        if (mutualTests.length >= 2) {
+            const logChannel = interaction.guild.channels.cache.find(c => c.name === 'staff-logs');
+            if (logChannel) {
+                logChannel.send(`⚠️ **Potential collusion**: <@${testData.testerId}> and <@${testData.playerId}> have tested each other ${mutualTests.length} times.`);
+            }
+        }
+
+        // Post result to the test channel
+        await interaction.channel.send({
+            content: `✅ **Test Result Submitted**\n━━━━━━━━━━━━━━━━━━━━\n📦 **Kit:** ${testData.kit}\n🏆 **Tier:** ${tier}\n💀 **Totems popped:** ${totems}\n🖱️ **CPS:** ${cps}\n📝 **Notes:** ${notes}\n👤 **Tester:** <@${testData.testerId}>\n🕒 **Finished:** <t:${Math.floor(Date.now()/1000)}:F>\n━━━━━━━━━━━━━━━━━━━━\nThis channel will close in 30 seconds.`
+        });
+
+        // Also post to a public test-results channel if exists
+        const publicResults = interaction.guild.channels.cache.find(c => c.name === '📋｜test-results');
+        if (publicResults) {
+            publicResults.send(`**📋 Test Result**\nPlayer: <@${testData.playerId}>\nKit: ${testData.kit}\nTier: ${tier}\nTester: <@${testData.testerId}>\nDate: ${new Date().toLocaleString()}`);
+        }
+
+        // Lock channel and delete after 30 sec
+        await interaction.channel.permissionOverwrites.edit(testData.playerId, { SendMessages: false });
+        await interaction.channel.permissionOverwrites.edit(testData.testerId, { SendMessages: false });
+        setTimeout(async () => {
+            try {
+                await interaction.channel.delete();
+                delete activeTests[channelId];
+            } catch(e) { console.error(e); }
+        }, 30000);
+
+        await interaction.reply({ content: '✅ Result recorded. Channel will close shortly.', ephemeral: true });
+    }
+});
+
+client.login(TOKEN);
