@@ -866,14 +866,4 @@ client.on('interactionCreate', async interaction => {
 process.on('unhandledRejection', console.error);
 process.on('uncaughtException', console.error);
 
-// DELETE OLD COMMANDS - RUN ONCE
-(async () => {
-    const { REST, Routes } = require('discord.js');
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
-    try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-        console.log('✅ Old commands deleted! Remove this code and restart bot.');
-    } catch(e) { console.error(e); }
-})();
-
 client.login(TOKEN);
