@@ -1,743 +1,869 @@
-const { Client, GatewayIntentBits, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField, StringSelectMenuBuilder } = require('discord.js');
+const fs = require('fs');
+const express = require('express');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMembers] });
+// ==================== KEEP-ALIVE SERVER ====================
+const keepAliveApp = express();
+keepAliveApp.get('/', (req, res) => res.send('Bot is alive!'));
+keepAliveApp.listen(3000, () => console.log('🌐 Server on port 3000'));
 
-const TOKEN = process.env.TIER_TEST_TOKEN;
-const CLIENT_ID = process.env.TIER_CLIENT_ID;
-const GUILD_ID = process.env.TIER_GUILD_ID;
-
-// ==================== DATA STORES ====================
-let testQueue = {};
-let activeTests = {};
-let testResults = [];
-let testCooldown = {};
-let testerStats = {};
-let pendingRankSelections = {};
-
-// ==================== KITS CONFIGURATION ====================
-const GAMEMODES = ['hydro', 'smp', 'diapot', 'noaxe', 'axe', 'uhc', 'elytramace', 'nethpot', 'crystal', 'spearmace'];
-
-const KIT_NAMES = {
-    hydro: '💧 Hydro', smp: '🌍 SMP', diapot: '💎 Diapot', noaxe: '🪓 No Axe', axe: '⚔️ Axe',
-    uhc: '🏹 UHC', elytramace: '🦅 Elytra Mace', nethpot: '🧪 NethPot', crystal: '💥 Crystal', spearmace: '🔱 Spear Mace'
-};
-
-const KIT_EMOJIS = {
-    hydro: '💧', smp: '🌍', diapot: '💎', noaxe: '🪓', axe: '⚔️',
-    uhc: '🏹', elytramace: '🦅', nethpot: '🧪', crystal: '💥', spearmace: '🔱'
-};
-
-// Available ranks from LT5 (lowest) to HT1 (highest)
-const RANKS = [
-    { name: 'LT5', emoji: '🪖', level: 1, description: 'Beginner - Needs significant improvement' },
-    { name: 'LT4', emoji: '🪖', level: 2, description: 'Novice - Basic understanding' },
-    { name: 'LT3', emoji: '🪖', level: 3, description: 'Apprentice - Decent skills' },
-    { name: 'LT2', emoji: '🪖', level: 4, description: 'Intermediate - Good player' },
-    { name: 'LT1', emoji: '🪖', level: 5, description: 'Advanced - Very good player' },
-    { name: 'HT5', emoji: '🎖️', level: 6, description: 'Expert - Excellent performance' },
-    { name: 'HT4', emoji: '🎖️', level: 7, description: 'Master - Pro level' },
-    { name: 'HT3', emoji: '🎖️', level: 8, description: 'Grandmaster - Very pro' },
-    { name: 'HT2', emoji: '🎖️', level: 9, description: 'Elite - Top tier' },
-    { name: 'HT1', emoji: '🎖️', level: 10, description: 'Legend - Best of the best' }
-];
-
-const RANK_BY_LEVEL = Object.fromEntries(RANKS.map(r => [r.level, r]));
-
-function suggestRank(answers) {
-    let score = 0;
-    
-    // Defeated tester? Big boost
-    if (answers.defeated === 'yes') score += 4;
-    else if (answers.defeated === 'close') score += 2;
-    
-    // Movement & game sense
-    if (answers.movement === 'excellent') score += 3;
-    else if (answers.movement === 'good') score += 2;
-    else if (answers.movement === 'average') score += 1;
-    
-    // Aim & mechanics
-    if (answers.aim === 'excellent') score += 3;
-    else if (answers.aim === 'good') score += 2;
-    else if (answers.aim === 'average') score += 1;
-    
-    // Overall rating (1-10)
-    const overall = parseInt(answers.overall) || 5;
-    score += Math.floor(overall / 2);
-    
-    // Map score to rank level (1-10)
-    let level = Math.min(10, Math.max(1, Math.floor(score / 1.5)));
-    
-    return RANK_BY_LEVEL[level] || RANKS[0];
-}
-
-// ==================== HELPER FUNCTIONS ====================
-async function isTester(member) {
-    return member.roles.cache.some(r => r.name === 'Tester') || member.permissions.has('Administrator');
-}
-
-async function canTest(member) {
-    const daysInServer = (Date.now() - member.joinedTimestamp) / (1000 * 60 * 60 * 24);
-    return daysInServer >= 7;
-}
-
-async function createTestChannel(guild, playerId, testerId, kit) {
-    let category = guild.channels.cache.find(c => c.name === '🧪｜TESTING' && c.type === 4);
-    if (!category) {
-        category = await guild.channels.create({
-            name: '🧪｜TESTING',
-            type: 4,
-            permissionOverwrites: [{ id: guild.id, deny: ['ViewChannel'] }]
-        });
-    }
-    const channel = await guild.channels.create({
-        name: `test-${kit}-${playerId.slice(-4)}`,
-        type: 0,
-        parent: category.id,
-        permissionOverwrites: [
-            { id: guild.id, deny: ['ViewChannel'] },
-            { id: playerId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-            { id: testerId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }
-        ]
-    });
-    activeTests[channel.id] = { playerId, testerId, kit, startTime: Date.now() };
-    return channel;
-}
-
-function checkCollusion(playerId, testerId) {
-    return testResults.filter(r =>
-        (r.testerId === testerId && r.playerId === playerId) ||
-        (r.testerId === playerId && r.playerId === testerId)
-    ).length;
-}
-
-function logToStaffChannel(guild, message) {
-    const logChannel = guild.channels.cache.find(c => c.name === '🔒｜staff-logs');
-    if (logChannel) logChannel.send(message).catch(() => {});
-}
-
-// ==================== COMMAND REGISTRATION ====================
-client.once('ready', async () => {
-    console.log(`✅ Tier Test Bot logged in as ${client.user.tag}`);
-    await registerCommands();
-    console.log('✅ Commands registered');
-    console.log(`📊 Loaded ${testResults.length} test results`);
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages
+    ]
 });
 
-async function registerCommands() {
-    const commands = [
-        {
-            name: 'test',
-            description: 'Join, leave, or check test queue status',
-            options: [
-                {
-                    name: 'action',
-                    type: 3,
-                    required: true,
-                    description: 'What to do',
-                    choices: [
-                        { name: 'join', value: 'join' },
-                        { name: 'leave', value: 'leave' },
-                        { name: 'status', value: 'status' }
-                    ]
-                },
-                {
-                    name: 'kit',
-                    type: 3,
-                    required: false,
-                    description: 'Kit to test (required for join)',
-                    choices: GAMEMODES.map(k => ({ name: KIT_NAMES[k], value: k }))
-                }
-            ]
-        },
-        {
-            name: 'testnext',
-            description: '[Tester] Take next player from queue (any or specific kit)',
-            options: [{
-                name: 'kit',
-                type: 3,
-                required: false,
-                description: 'Specific kit (optional)',
-                choices: GAMEMODES.map(k => ({ name: KIT_NAMES[k], value: k }))
-            }]
-        },
-        {
-            name: 'testlist',
-            description: '[Tester] Show clickable list of players waiting for a kit',
-            options: [{
-                name: 'kit',
-                type: 3,
-                required: true,
-                description: 'Kit to view',
-                choices: GAMEMODES.map(k => ({ name: KIT_NAMES[k], value: k }))
-            }]
-        },
-        {
-            name: 'testselect',
-            description: '[Tester] Select a specific player from queue',
-            options: [
-                { name: 'player', type: 6, required: true, description: 'Player to test' },
-                { name: 'kit', type: 3, required: true, description: 'Kit to test', choices: GAMEMODES.map(k => ({ name: KIT_NAMES[k], value: k })) }
-            ]
-        },
-        {
-            name: 'testresult',
-            description: '[Tester] Submit results for active test (use in test channel)'
-        },
-        {
-            name: 'testhistory',
-            description: '[Tester] View test history of a player',
-            options: [{ name: 'player', type: 6, required: true, description: 'Player to view' }]
-        },
-        {
-            name: 'teststats',
-            description: '[Tester] Show current queue sizes and stats'
-        },
-        {
-            name: 'testcancel',
-            description: '[Tester] Remove a player from queue',
-            options: [
-                { name: 'player', type: 6, required: true, description: 'Player to remove' },
-                { name: 'kit', type: 3, required: true, description: 'Kit', choices: GAMEMODES.map(k => ({ name: KIT_NAMES[k], value: k })) }
-            ]
-        },
-        {
-            name: 'testerstats',
-            description: '[Tester] View tester leaderboard (most tests conducted)'
-        }
-    ];
+const TOKEN = process.env.TIER_BOT_TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
 
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+// ==================== CONFIGURATION ====================
+const APPLICANT_ROLE = 'Combat Learner';
+const APPLY_CHANNEL = 'apply';
+const QUEUE_CHANNEL = 'queue';
+const RESULTS_CHANNEL = 'test-results';
+const LOG_CHANNEL = 'staff-logs';
+const TESTER_PANEL_CHANNEL = 'test-panels';
+const QUEUE_CATEGORY = 'TIER TESTING';
+
+// Rank roles (order matters for auto-update)
+const RANK_ROLES = ['LT5', 'LT4', 'LT3', 'LT2', 'LT1', 'HT5', 'HT4', 'HT3', 'HT2', 'HT1'];
+
+// Gamemodes/Kits with their corresponding tester role names
+const GAMEMODES = [
+    { name: 'Sword', testerRole: 'Sword Tester' },
+    { name: 'Axe', testerRole: 'Axe Tester' },
+    { name: 'No Axe', testerRole: 'No Axe Tester' },
+    { name: 'Mace HT', testerRole: 'Mace HT Tester' },
+    { name: 'Mace LT', testerRole: 'Mace LT Tester' },
+    { name: 'Nethpot', testerRole: 'Nethpot Tester' },
+    { name: 'Crystal', testerRole: 'Crystal Tester' },
+    { name: 'Mace-Sphere', testerRole: 'Mace-Sphere Tester' },
+    { name: 'UHC', testerRole: 'UHC Tester' },
+    { name: 'SMP', testerRole: 'SMP Tester' },
+    { name: 'Pot', testerRole: 'Pot Tester' }
+];
+
+// ==================== DATABASE ====================
+let db = {
+    players: {},
+    queues: {},
+    kits: {},
+    queueMessages: {}
+};
+
+const DATA_FILE = 'tierbot.json';
+if (fs.existsSync(DATA_FILE)) {
+    try { db = JSON.parse(fs.readFileSync(DATA_FILE)); } catch(e) {}
+}
+function saveData() { fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2)); }
+
+// ==================== ROLE HELPERS ====================
+async function getRole(guild, name) {
+    return guild.roles.cache.find(r => r.name === name);
 }
 
-// ==================== COMMAND HANDLERS ====================
+async function setRank(guild, userId, newRank) {
+    const member = await guild.members.fetch(userId);
+    if (!member) return false;
+    
+    for (const rank of RANK_ROLES) {
+        const role = await getRole(guild, rank);
+        if (role && member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+        }
+    }
+    
+    const newRankRole = await getRole(guild, newRank);
+    if (newRankRole) {
+        await member.roles.add(newRankRole);
+    }
+    
+    if (db.players[userId]) {
+        db.players[userId].rank = newRank;
+        saveData();
+    }
+    return true;
+}
+
+// Get kit name from object
+function getKitName(kitObj) {
+    return typeof kitObj === 'object' ? kitObj.name : kitObj;
+}
+
+// ==================== QUEUE EMBED ====================
+async function updateQueueEmbed(guild, kitObj) {
+    const kitName = getKitName(kitObj);
+    const queue = db.queues[kitName];
+    if (!queue || !queue.messageId) return;
+    
+    const channel = await guild.channels.fetch(QUEUE_CHANNEL).catch(() => null);
+    if (!channel) return;
+    
+    const waitingList = queue.waiting || [];
+    const testingList = queue.testing || [];
+    
+    // Get active testers for this specific kit
+    const kitData = GAMEMODES.find(k => k.name === kitName);
+    const testerRoleName = kitData?.testerRole;
+    const testerRole = testerRoleName ? await getRole(guild, testerRoleName) : null;
+    const activeTesters = testerRole ? testerRole.members.map(m => `<@${m.id}>`).join(', ') : 'None';
+    
+    let waitingText = '';
+    for (let i = 0; i < waitingList.length; i++) {
+        const playerId = waitingList[i];
+        const player = db.players[playerId];
+        const member = await guild.members.fetch(playerId).catch(() => null);
+        waitingText += `${i+1}. **${player?.username || 'Unknown'}** (${member ? `<@${playerId}>` : 'Unknown'})\n`;
+    }
+    if (waitingText === '') waitingText = '*No players waiting*';
+    
+    let testingText = '';
+    for (const test of testingList) {
+        const player = db.players[test.userId];
+        const member = await guild.members.fetch(test.userId).catch(() => null);
+        testingText += `• **${player?.username || 'Unknown'}** — tested by <@${test.testerId}>\n`;
+    }
+    if (testingText === '') testingText = '*No active tests*';
+    
+    const embed = new EmbedBuilder()
+        .setTitle(`⚔️ ${kitName} QUEUE — Waiting: ${waitingList.length}`)
+        .setColor(0x2C2F33)
+        .setDescription([
+            '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+            `**🟢 Active ${kitName} Testers:**\n${activeTesters}`,
+            '',
+            `**🔴 Currently Testing:**\n${testingText}`,
+            '',
+            `**⏳ Waiting Queue:**\n${waitingText}`,
+            '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+        ].join('\n'))
+        .setFooter({ text: 'Updated every 60 minutes • Click button below to check your position' })
+        .setTimestamp();
+    
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`queue_position:${kitName}`)
+            .setLabel('📍 WHERE AM I?')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📍')
+    );
+    
+    const message = await channel.messages.fetch(queue.messageId).catch(() => null);
+    if (message) {
+        await message.edit({ embeds: [embed], components: [row] });
+    } else {
+        const newMsg = await channel.send({ embeds: [embed], components: [row] });
+        db.queues[kitName].messageId = newMsg.id;
+        saveData();
+    }
+}
+
+async function saveQueueMessage(kit, messageId) {
+    if (!db.queues[kit]) db.queues[kit] = { waiting: [], testing: [], messageId: null };
+    db.queues[kit].messageId = messageId;
+    saveData();
+}
+
+// ==================== MODALS ====================
+async function showApplyModal(interaction) {
+    const modal = new ModalBuilder()
+        .setCustomId('apply_modal')
+        .setTitle('Minecraft Tier Application');
+    
+    const usernameInput = new TextInputBuilder()
+        .setCustomId('username')
+        .setLabel('Minecraft Username')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('Enter your Minecraft username (Bedrock)');
+    
+    const regionInput = new TextInputBuilder()
+        .setCustomId('region')
+        .setLabel('Region')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('EU / NA / ASIA / etc.');
+    
+    const deviceInput = new TextInputBuilder()
+        .setCustomId('device')
+        .setLabel('Device')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('Mobile / PC / Console');
+    
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(usernameInput),
+        new ActionRowBuilder().addComponents(regionInput),
+        new ActionRowBuilder().addComponents(deviceInput)
+    );
+    
+    await interaction.showModal(modal);
+}
+
+async function showDoneModal(interaction, playerId, playerName) {
+    const modal = new ModalBuilder()
+        .setCustomId(`done_modal:${playerId}`)
+        .setTitle('Complete Test');
+    
+    const rankInput = new TextInputBuilder()
+        .setCustomId('rank')
+        .setLabel('Earned Rank')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('LT5, LT4, LT3, LT2, LT1, HT5, HT4, HT3, HT2, HT1');
+    
+    const scoreInput = new TextInputBuilder()
+        .setCustomId('score')
+        .setLabel('Score / Frags')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('e.g., 7-2 or 5');
+    
+    const notesInput = new TextInputBuilder()
+        .setCustomId('notes')
+        .setLabel('Notes')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false)
+        .setPlaceholder('Optional notes about the test');
+    
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(rankInput),
+        new ActionRowBuilder().addComponents(scoreInput),
+        new ActionRowBuilder().addComponents(notesInput)
+    );
+    
+    await interaction.showModal(modal);
+}
+
+// ==================== REGISTER COMMANDS ====================
+async function registerCommands() {
+    const kitChoices = GAMEMODES.map(k => ({ name: k.name, value: k.name }));
+    
+    const commands = [
+        { name: 'apply', description: 'Apply to become a Combat Learner' },
+        { name: 'request', description: 'Request a test for a specific gamemode' },
+        { name: 'cancel', description: 'Cancel your pending test request' },
+        { name: 'position', description: 'Check your position in queues' },
+        { name: 'queue', description: 'View waiting queue for a kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
+        { name: 'testnow', description: 'Start a test with a player', options: [{ name: 'player', type: 6, required: true }] },
+        { name: 'start', description: 'Start the test timer (use in test channel)' },
+        { name: 'done', description: 'Complete the current test' },
+        { name: 'close', description: 'Force close the test channel' },
+        { name: 'deploy', description: '[Staff] Deploy queue embed for a kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
+        { name: 'removequeue', description: '[Staff] Remove queue embed for a kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
+        { name: 'refreshqueue', description: '[Staff] Manually refresh queue embed', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
+        { name: 'kit', description: '[Admin] Manage kits', options: [
+            { name: 'action', type: 3, required: true, choices: [{ name: 'add', value: 'add' }, { name: 'remove', value: 'remove' }, { name: 'list', value: 'list' }] },
+            { name: 'name', type: 3, required: false },
+            { name: 'image', type: 3, required: false }
+        ] },
+        { name: 'check', description: '[Staff] Check player info', options: [{ name: 'player', type: 6, required: true }] },
+        { name: 'forcerank', description: '[Admin] Force change player rank', options: [{ name: 'player', type: 6, required: true }, { name: 'rank', type: 3, required: true, choices: RANK_ROLES.map(r => ({ name: r, value: r })) }] },
+        { name: 'reset', description: '[Admin] Reset player completely', options: [{ name: 'player', type: 6, required: true }] },
+        { name: 'help', description: 'Show all commands' }
+    ];
+    
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('✅ Commands registered');
+}
+
+// ==================== READY ====================
+client.once('ready', async () => {
+    console.log(`✅ Tier Bot logged in as ${client.user.tag}`);
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return console.error('❌ Guild not found!');
+    
+    await registerCommands();
+    
+    // Log available tester roles
+    console.log('\n📋 Detected Tester Roles:');
+    for (const kit of GAMEMODES) {
+        const role = await getRole(guild, kit.testerRole);
+        console.log(`   ${kit.name}: ${role ? '✅ ' + kit.testerRole : '❌ Missing - create role "' + kit.testerRole + '"'}`);
+    }
+    
+    for (const kit of GAMEMODES) {
+        if (db.queues[kit.name] && db.queues[kit.name].messageId) {
+            setInterval(async () => {
+                const g = client.guilds.cache.get(GUILD_ID);
+                if (g) await updateQueueEmbed(g, kit.name);
+            }, 60 * 60 * 1000);
+        }
+    }
+    
+    console.log(`\n✅ Ready! | ${GAMEMODES.length} gamemodes loaded`);
+});
+
+// ==================== INTERACTION HANDLER ====================
 client.on('interactionCreate', async interaction => {
+    // Modals
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'apply_modal') {
+            const username = interaction.fields.getTextInputValue('username');
+            const region = interaction.fields.getTextInputValue('region');
+            const device = interaction.fields.getTextInputValue('device');
+            
+            const applicantRole = await getRole(interaction.guild, APPLICANT_ROLE);
+            if (!applicantRole) {
+                return interaction.reply({ content: '❌ Combat Learner role not found! Please create it.', flags: 64 });
+            }
+            
+            if (interaction.member.roles.cache.has(applicantRole.id)) {
+                return interaction.reply({ content: '❌ You already applied!', flags: 64 });
+            }
+            
+            await interaction.member.roles.add(applicantRole);
+            
+            db.players[interaction.user.id] = {
+                username,
+                region,
+                device,
+                rank: null,
+                appliedAt: Date.now(),
+                testHistory: []
+            };
+            saveData();
+            
+            const embed = new EmbedBuilder()
+                .setColor(0x2ECC71)
+                .setTitle('✅ Application Submitted!')
+                .setDescription(`**Welcome, ${interaction.user.username}!**\n\nYou are now a **Combat Learner**.\n\nUse \`/request\` to request a test!`)
+                .addFields(
+                    { name: '📝 Username', value: username, inline: true },
+                    { name: '🌍 Region', value: region, inline: true },
+                    { name: '📱 Device', value: device, inline: true }
+                );
+            
+            await interaction.reply({ embeds: [embed], flags: 64 });
+            return;
+        }
+        
+        if (interaction.customId.startsWith('done_modal:')) {
+            const playerId = interaction.customId.split(':')[1];
+            const rank = interaction.fields.getTextInputValue('rank').toUpperCase();
+            const score = interaction.fields.getTextInputValue('score');
+            const notes = interaction.fields.getTextInputValue('notes') || 'No notes';
+            
+            const player = db.players[playerId];
+            if (!player) {
+                return interaction.reply({ content: '❌ Player not found!', flags: 64 });
+            }
+            
+            const previousRank = player.rank || 'Unranked';
+            await setRank(interaction.guild, playerId, rank);
+            
+            player.testHistory.push({
+                tester: interaction.user.id,
+                rank: rank,
+                score: score,
+                notes: notes,
+                date: Date.now()
+            });
+            saveData();
+            
+            const resultsChannel = interaction.guild.channels.cache.find(c => c.name === RESULTS_CHANNEL);
+            const resultsEmbed = new EmbedBuilder()
+                .setColor(rank.startsWith('HT') ? 0x9B59B6 : 0x3498DB)
+                .setTitle(`🎉 ${player.username}'s Test Results`)
+                .setDescription([
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                    `**Tester:** <@${interaction.user.id}>`,
+                    `**Region:** ${player.region}`,
+                    `**Username:** ${player.username}`,
+                    `**Score:** ${score}`,
+                    `**Previous Rank:** ${previousRank}`,
+                    `**Rank Earned:** ${rank} ${rank !== previousRank ? '🆙' : ''}`,
+                    `**Notes:** ${notes}`,
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+                ].join('\n'))
+                .setFooter({ text: `Test completed by ${interaction.user.username}` })
+                .setTimestamp();
+            
+            if (resultsChannel) await resultsChannel.send({ content: `<@${playerId}>`, embeds: [resultsEmbed] });
+            
+            for (const kit of GAMEMODES) {
+                const queue = db.queues[kit.name];
+                if (queue) {
+                    queue.waiting = queue.waiting.filter(id => id !== playerId);
+                    queue.testing = queue.testing.filter(t => t.userId !== playerId);
+                    await updateQueueEmbed(interaction.guild, kit.name);
+                }
+            }
+            
+            await interaction.reply({ content: `✅ Test completed! ${player.username} is now ${rank}`, flags: 64 });
+            setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+            return;
+        }
+    }
+    
+    // Buttons
+    if (interaction.isButton() && interaction.customId.startsWith('queue_position:')) {
+        const kit = interaction.customId.split(':')[1];
+        const queue = db.queues[kit];
+        if (!queue) {
+            return interaction.reply({ content: '❌ Queue not found!', flags: 64 });
+        }
+        
+        const position = queue.waiting.indexOf(interaction.user.id);
+        if (position === -1) {
+            return interaction.reply({ content: '❌ You are not in this queue!', flags: 64 });
+        }
+        
+        const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setTitle(`📍 Your Position in ${kit} Queue`)
+            .setDescription([
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `**Position:** #${position + 1} out of ${queue.waiting.length}`,
+                `**Players ahead:** ${position}`,
+                `**Estimated wait:** ~${position * 10} minutes`,
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `You will be notified when a tester picks you!`
+            ].join('\n'));
+        
+        await interaction.reply({ embeds: [embed], flags: 64 });
+        return;
+    }
+    
+    // Select Menus
+    if (interaction.isStringSelectMenu() && interaction.customId === 'request_menu') {
+        const kitName = interaction.values[0];
+        
+        if (!db.players[interaction.user.id]) {
+            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
+        }
+        
+        if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
+        
+        if (db.queues[kitName].waiting.includes(interaction.user.id)) {
+            return interaction.reply({ content: '❌ You are already in this queue!', flags: 64 });
+        }
+        
+        db.queues[kitName].waiting.push(interaction.user.id);
+        saveData();
+        
+        await updateQueueEmbed(interaction.guild, kitName);
+        await interaction.reply({ content: `✅ Added to **${kitName}** queue at position #${db.queues[kitName].waiting.length}!`, flags: 64 });
+        return;
+    }
+    
+    // Slash Commands
     if (!interaction.isChatInputCommand()) return;
-
-    // ========== PLAYER: /test ==========
-    if (interaction.commandName === 'test') {
-        const action = interaction.options.getString('action');
-        const userId = interaction.user.id;
-
-        if (action === 'join') {
-            const kit = interaction.options.getString('kit');
-            if (!kit) {
-                return interaction.reply({
-                    content: `❌ Please specify a kit.\nAvailable: ${GAMEMODES.map(k => KIT_NAMES[k]).join(', ')}`,
-                    ephemeral: true
-                });
-            }
-            if (!GAMEMODES.includes(kit)) {
-                return interaction.reply({ content: '❌ Invalid kit.', ephemeral: true });
-            }
-
-            const cooldownKey = `${userId}_${kit}`;
-            if (testCooldown[cooldownKey] && Date.now() - testCooldown[cooldownKey] < 6 * 60 * 60 * 1000) {
-                const remaining = Math.ceil((6 * 60 * 60 * 1000 - (Date.now() - testCooldown[cooldownKey])) / (60 * 60 * 1000));
-                return interaction.reply({ content: `❌ You can only request a test every 6 hours. ${remaining} hour(s) remaining.`, ephemeral: true });
-            }
-
-            let already = false;
-            for (let k in testQueue) {
-                if (testQueue[k]?.includes(userId)) {
-                    already = true;
-                    break;
-                }
-            }
-            if (already) {
-                return interaction.reply({ content: '❌ You are already in a queue. Use `/test leave` first.', ephemeral: true });
-            }
-
-            if (!testQueue[kit]) testQueue[kit] = [];
-            testQueue[kit].push(userId);
-            const position = testQueue[kit].length;
-
-            await interaction.reply({
-                content: `✅ Joined **${KIT_NAMES[kit]}** test queue. Position: ${position}\n⏳ You will be notified when a tester picks you.`,
-                ephemeral: true
-            });
+    
+    const { commandName, options, member, guild, channel } = interaction;
+    const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+    
+    // Check if user is tester for a specific kit (has ANY tester role)
+    const isTester = isAdmin || member.roles.cache.some(r => r.name.endsWith('Tester'));
+    
+    // Player Commands
+    if (commandName === 'apply') {
+        const applyChannel = guild.channels.cache.find(c => c.name === APPLY_CHANNEL);
+        if (channel.id !== applyChannel?.id) {
+            return interaction.reply({ content: `❌ Use this command in #${APPLY_CHANNEL}!`, flags: 64 });
         }
-        else if (action === 'leave') {
-            let removed = false;
-            let removedFrom = null;
-            for (let k in testQueue) {
-                const idx = testQueue[k]?.indexOf(userId);
-                if (idx !== -1) {
-                    testQueue[k].splice(idx, 1);
-                    removed = true;
-                    removedFrom = k;
-                    break;
-                }
-            }
-            await interaction.reply({
-                content: removed ? `✅ Left **${KIT_NAMES[removedFrom]}** queue.` : '❌ You are not in any queue.',
-                ephemeral: true
-            });
+        await showApplyModal(interaction);
+        return;
+    }
+    
+    if (commandName === 'request') {
+        if (!db.players[interaction.user.id]) {
+            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
         }
-        else if (action === 'status') {
-            let msg = `**📋 Your test queue status**\n━━━━━━━━━━━━━━━━━━━━\n`;
-            let inQueue = false;
-            for (let k in testQueue) {
-                const idx = testQueue[k]?.indexOf(userId);
-                if (idx !== -1) {
-                    msg += `\n${KIT_EMOJIS[k]} **${KIT_NAMES[k]}**: position ${idx + 1}`;
+        
+        const row = new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('request_menu')
+                .setPlaceholder('Select a gamemode')
+                .addOptions(GAMEMODES.map(k => ({ label: k.name, value: k.name, description: `Join ${k.name} queue` })))
+        );
+        
+        await interaction.reply({ content: '🎮 **Select a gamemode to test:**', components: [row], flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'cancel') {
+        let removed = false;
+        for (const kit of GAMEMODES) {
+            const queue = db.queues[kit.name];
+            if (queue && queue.waiting.includes(interaction.user.id)) {
+                queue.waiting = queue.waiting.filter(id => id !== interaction.user.id);
+                await updateQueueEmbed(guild, kit.name);
+                removed = true;
+            }
+        }
+        
+        await interaction.reply({ content: removed ? '✅ Removed from all queues!' : '❌ You are not in any queue!', flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'position') {
+        let message = '**Your Queue Positions:**\n━━━━━━━━━━━━━━━━━━━━\n';
+        let inQueue = false;
+        
+        for (const kit of GAMEMODES) {
+            const queue = db.queues[kit.name];
+            if (queue) {
+                const pos = queue.waiting.indexOf(interaction.user.id);
+                if (pos !== -1) {
+                    message += `**${kit.name}:** #${pos + 1}/${queue.waiting.length}\n`;
                     inQueue = true;
                 }
             }
-            if (!inQueue) {
-                msg = '📭 You are not in any test queue.\nUse `/test join <kit>` to request a test.';
-            }
-            await interaction.reply({ content: msg, ephemeral: true });
         }
+        
+        if (!inQueue) message += '*You are not in any queue*';
+        await interaction.reply({ content: message, flags: 64 });
+        return;
     }
-
-    // ========== TESTER PERMISSION CHECK ==========
-    const testerCommands = ['testnext', 'testlist', 'testselect', 'testresult', 'testhistory', 'teststats', 'testcancel', 'testerstats'];
-    if (testerCommands.includes(interaction.commandName)) {
-        if (!await isTester(interaction.member)) {
-            return interaction.reply({ content: '❌ Only members with the `Tester` role can use this command.', ephemeral: true });
-        }
-        if (!await canTest(interaction.member)) {
-            return interaction.reply({ content: '❌ Testers must be in the server for at least 7 days before conducting tests.', ephemeral: true });
-        }
+    
+    // Tester Commands (only if has tester role or admin)
+    if (!isTester && !isAdmin && ['queue', 'testnow', 'start', 'done', 'close', 'check'].includes(commandName)) {
+        return interaction.reply({ content: '❌ You need a **Tester** role to use this command!', flags: 64 });
     }
-
-    // ========== TESTER: /testnext ==========
-    if (interaction.commandName === 'testnext') {
-        const specificKit = interaction.options.getString('kit');
-        let selectedKit = null;
-        let selectedPlayer = null;
-
-        if (specificKit) {
-            if (testQueue[specificKit]?.length > 0) {
-                selectedKit = specificKit;
-                selectedPlayer = testQueue[specificKit].shift();
+    
+    if (commandName === 'queue' && (isTester || isAdmin)) {
+        const kitName = options.getString('kit');
+        const queue = db.queues[kitName];
+        
+        if (!queue || queue.waiting.length === 0) {
+            return interaction.reply({ content: `📭 **${kitName}** queue is empty!`, flags: 64 });
+        }
+        
+        // Check if tester has the required role for this kit (unless admin)
+        const kitData = GAMEMODES.find(k => k.name === kitName);
+        const requiredRole = kitData?.testerRole;
+        const hasRequiredRole = isAdmin || (requiredRole && member.roles.cache.some(r => r.name === requiredRole));
+        
+        if (!hasRequiredRole) {
+            return interaction.reply({ content: `❌ You need the **${requiredRole}** role to view ${kitName} queue!`, flags: 64 });
+        }
+        
+        let list = `**${kitName} Queue (${queue.waiting.length} waiting):**\n━━━━━━━━━━━━━━━━━━━━\n`;
+        for (let i = 0; i < Math.min(queue.waiting.length, 10); i++) {
+            const playerId = queue.waiting[i];
+            const player = db.players[playerId];
+            list += `${i+1}. ${player?.username || 'Unknown'} (<@${playerId}>)\n`;
+        }
+        
+        await interaction.reply({ content: list, flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'testnow' && (isTester || isAdmin)) {
+        const target = options.getMember('player');
+        if (!target) return interaction.reply({ content: '❌ Player not found!', flags: 64 });
+        
+        const playerData = db.players[target.id];
+        if (!playerData) {
+            return interaction.reply({ content: '❌ Player has not applied yet! Use `/apply` first.', flags: 64 });
+        }
+        
+        let kitName = null;
+        let requiredRole = null;
+        
+        for (const kit of GAMEMODES) {
+            const queue = db.queues[kit.name];
+            if (queue && queue.waiting.includes(target.id)) {
+                kitName = kit.name;
+                requiredRole = kit.testerRole;
+                queue.waiting = queue.waiting.filter(id => id !== target.id);
+                queue.testing.push({ userId: target.id, testerId: interaction.user.id });
+                saveData();
+                break;
             }
-        } else {
-            for (let kit in testQueue) {
-                if (testQueue[kit]?.length > 0) {
-                    selectedKit = kit;
-                    selectedPlayer = testQueue[kit].shift();
-                    break;
+        }
+        
+        if (!kitName) {
+            return interaction.reply({ content: '❌ Player is not in any queue!', flags: 64 });
+        }
+        
+        // Check if tester has required role (unless admin)
+        if (!isAdmin && requiredRole && !member.roles.cache.some(r => r.name === requiredRole)) {
+            // Put player back in queue
+            for (const kit of GAMEMODES) {
+                const queue = db.queues[kit.name];
+                if (queue) {
+                    queue.waiting = queue.waiting.filter(id => id !== target.id);
+                    queue.testing = queue.testing.filter(t => t.userId !== target.id);
                 }
             }
+            db.queues[kitName].waiting.push(target.id);
+            saveData();
+            return interaction.reply({ content: `❌ You need the **${requiredRole}** role to test ${kitName}!`, flags: 64 });
         }
-
-        if (!selectedPlayer) {
-            return interaction.reply({
-                content: `📭 No players in ${specificKit ? KIT_NAMES[specificKit] : 'any'} queue.`,
-                ephemeral: true
-            });
-        }
-
-        if (selectedPlayer === interaction.user.id) {
-            if (!testQueue[selectedKit]) testQueue[selectedKit] = [];
-            testQueue[selectedKit].unshift(selectedPlayer);
-            return interaction.reply({ content: '❌ You cannot test yourself.', ephemeral: true });
-        }
-
-        const collusionCount = checkCollusion(selectedPlayer, interaction.user.id);
-        if (collusionCount >= 2) {
-            logToStaffChannel(interaction.guild, `⚠️ **Collusion Warning**: <@${interaction.user.id}> and <@${selectedPlayer}> have tested each other ${collusionCount + 1} times.`);
-        }
-
-        const channel = await createTestChannel(interaction.guild, selectedPlayer, interaction.user.id, selectedKit);
-        await channel.send({
-            content: `**🔍 TIER TEST STARTED**\n━━━━━━━━━━━━━━━━━━━━\n${KIT_EMOJIS[selectedKit]} **Kit:** ${KIT_NAMES[selectedKit]}\n👤 **Player:** <@${selectedPlayer}>\n👤 **Tester:** <@${interaction.user.id}>\n🕒 **Start:** <t:${Math.floor(Date.now() / 1000)}:F>\n━━━━━━━━━━━━━━━━━━━━\nConduct the test match. When finished, use \`/testresult\` in this channel.`
+        
+        const category = guild.channels.cache.find(c => c.name === QUEUE_CATEGORY && c.type === 4);
+        const testChannel = await guild.channels.create({
+            name: `test-${playerData.username}-${kitName}`,
+            type: 0,
+            parent: category,
+            permissionOverwrites: [
+                { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+                { id: target.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+                { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+            ]
         });
-        await channel.send(`<@${selectedPlayer}> <@${interaction.user.id}>`);
-        await interaction.reply({ content: `✅ Test started with <@${selectedPlayer}>. Private channel created.`, ephemeral: true });
-    }
-
-    // ========== TESTER: /testlist ==========
-    if (interaction.commandName === 'testlist') {
-        const kit = interaction.options.getString('kit');
-        const queue = testQueue[kit] || [];
-
-        if (queue.length === 0) {
-            return interaction.reply({ content: `📭 No players waiting for **${KIT_NAMES[kit]}**.`, ephemeral: true });
-        }
-
-        const players = [];
-        for (let i = 0; i < Math.min(queue.length, 25); i++) {
-            const playerId = queue[i];
-            let name = `Player ${i + 1}`;
-            try {
-                const user = await client.users.fetch(playerId);
-                name = user.username;
-            } catch (e) { }
-            players.push({ id: playerId, name, position: i + 1 });
-        }
-
+        
+        const kitImage = db.kits[kitName];
         const embed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle(`${KIT_EMOJIS[kit]} ${KIT_NAMES[kit]} Test Queue`)
-            .setDescription(`**${queue.length} player(s) waiting**\n━━━━━━━━━━━━━━━━━━━━\n${players.map(p => `**${p.position}.** ${p.name}`).join('\n')}`)
-            .setFooter({ text: 'Click a button below to test that player' });
-
-        const rows = [];
-        let currentRow = new ActionRowBuilder();
-        let buttonCount = 0;
-
-        for (const player of players) {
-            if (buttonCount === 5) {
-                rows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-                buttonCount = 0;
-            }
-            currentRow.addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`test_${kit}_${player.id}`)
-                    .setLabel(`${player.position}. ${player.name.slice(0, 20)}`)
-                    .setStyle(ButtonStyle.Primary)
-            );
-            buttonCount++;
-        }
-        if (buttonCount > 0) rows.push(currentRow);
-
-        await interaction.reply({ embeds: [embed], components: rows, ephemeral: true });
-    }
-
-    // ========== TESTER: /testselect ==========
-    if (interaction.commandName === 'testselect') {
-        const targetPlayer = interaction.options.getUser('player');
-        const kit = interaction.options.getString('kit');
-
-        if (!testQueue[kit] || !testQueue[kit].includes(targetPlayer.id)) {
-            return interaction.reply({ content: `❌ ${targetPlayer.username} is not in ${KIT_NAMES[kit]} queue.`, ephemeral: true });
-        }
-
-        if (targetPlayer.id === interaction.user.id) {
-            return interaction.reply({ content: '❌ You cannot test yourself.', ephemeral: true });
-        }
-
-        testQueue[kit] = testQueue[kit].filter(id => id !== targetPlayer.id);
-
-        const channel = await createTestChannel(interaction.guild, targetPlayer.id, interaction.user.id, kit);
-        await channel.send({
-            content: `**🔍 TIER TEST STARTED**\n━━━━━━━━━━━━━━━━━━━━\n${KIT_EMOJIS[kit]} **Kit:** ${KIT_NAMES[kit]}\n👤 **Player:** ${targetPlayer.tag}\n👤 **Tester:** <@${interaction.user.id}>\n🕒 **Start:** <t:${Math.floor(Date.now() / 1000)}:F>\n━━━━━━━━━━━━━━━━━━━━\nUse \`/testresult\` when done.`
-        });
-        await channel.send(`<@${targetPlayer.id}> <@${interaction.user.id}>`);
-        await interaction.reply({ content: `✅ Test started with ${targetPlayer.username}.`, ephemeral: true });
-    }
-
-    // ========== TESTER: /testresult (First Modal - Assessment) ==========
-    if (interaction.commandName === 'testresult') {
-        const channelId = interaction.channelId;
-        if (!activeTests[channelId]) {
-            return interaction.reply({ content: '❌ This is not an active test channel.', ephemeral: true });
-        }
-
-        const modal = new ModalBuilder()
-            .setCustomId('playerAssessmentModal')
-            .setTitle('Player Skill Assessment');
-
-        const defeatedInput = new TextInputBuilder()
-            .setCustomId('defeated')
-            .setLabel('Did the player defeat you? (yes/close/no)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setPlaceholder('yes, close, or no');
-
-        const movementInput = new TextInputBuilder()
-            .setCustomId('movement')
-            .setLabel('Movement & game sense? (poor/average/good/excellent)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setPlaceholder('poor, average, good, or excellent');
-
-        const aimInput = new TextInputBuilder()
-            .setCustomId('aim')
-            .setLabel('Aim & mechanics? (poor/average/good/excellent)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setPlaceholder('poor, average, good, or excellent');
-
-        const overallInput = new TextInputBuilder()
-            .setCustomId('overall')
-            .setLabel('Overall rating (1-10)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setPlaceholder('1 = very poor, 10 = exceptional');
-
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(defeatedInput),
-            new ActionRowBuilder().addComponents(movementInput),
-            new ActionRowBuilder().addComponents(aimInput),
-            new ActionRowBuilder().addComponents(overallInput)
-        );
-        await interaction.showModal(modal);
-    }
-
-    // ========== TESTER: /testhistory ==========
-    if (interaction.commandName === 'testhistory') {
-        const target = interaction.options.getUser('player');
-        const playerResults = testResults.filter(r => r.playerId === target.id);
-
-        if (playerResults.length === 0) {
-            return interaction.reply({ content: `📭 No test history found for ${target.username}.`, ephemeral: true });
-        }
-
-        let msg = `**📜 TEST HISTORY FOR ${target.username.toUpperCase()}**\n━━━━━━━━━━━━━━━━━━━━\n**Total Tests:** ${playerResults.length}\n\n**Recent Tests:**\n`;
-        playerResults.slice(-5).reverse().forEach(r => {
-            msg += `\n${KIT_EMOJIS[r.kit]} **${KIT_NAMES[r.kit]}** | Rank: **${r.rank}**\n📅 ${new Date(r.date).toLocaleString()} | Tester: <@${r.testerId}>\n📝 Notes: ${r.notes || 'None'}\n━━━━━━━━━━━━━━━━━━━━`;
-        });
-
-        await interaction.reply({ content: msg, ephemeral: true });
-    }
-
-    // ========== TESTER: /teststats ==========
-    if (interaction.commandName === 'teststats') {
-        let msg = '**📊 TEST QUEUE STATS**\n━━━━━━━━━━━━━━━━━━━━\n';
-        let any = false;
-        let total = 0;
-
-        for (let kit of GAMEMODES) {
-            const count = testQueue[kit]?.length || 0;
-            if (count > 0) {
-                any = true;
-                total += count;
-                msg += `\n${KIT_EMOJIS[kit]} **${KIT_NAMES[kit]}**: ${count} waiting`;
-            }
-        }
-
-        if (!any) {
-            msg += '\n📭 No players currently in any queue.';
-        } else {
-            msg += `\n━━━━━━━━━━━━━━━━━━━━\n**Total waiting:** ${total}`;
-        }
-
-        const totalTests = testResults.length;
-        const uniquePlayers = new Set(testResults.map(r => r.playerId)).size;
-        msg += `\n\n**📈 Overall Stats:**\n━━━━━━━━━━━━━━━━━━━━\n**Total Tests Conducted:** ${totalTests}\n**Unique Players Tested:** ${uniquePlayers}`;
-
-        await interaction.reply({ content: msg, ephemeral: true });
-    }
-
-    // ========== TESTER: /testcancel ==========
-    if (interaction.commandName === 'testcancel') {
-        const target = interaction.options.getUser('player');
-        const kit = interaction.options.getString('kit');
-
-        if (!testQueue[kit] || !testQueue[kit].includes(target.id)) {
-            return interaction.reply({ content: `❌ ${target.username} is not in ${KIT_NAMES[kit]} queue.`, ephemeral: true });
-        }
-
-        testQueue[kit] = testQueue[kit].filter(id => id !== target.id);
-        await interaction.reply({ content: `✅ Removed ${target.username} from ${KIT_NAMES[kit]} queue.`, ephemeral: true });
-        logToStaffChannel(interaction.guild, `🛠️ **${interaction.user.tag}** removed ${target.tag} from ${KIT_NAMES[kit]} queue.`);
-    }
-
-    // ========== TESTER: /testerstats ==========
-    if (interaction.commandName === 'testerstats') {
-        const testerCounts = {};
-        testResults.forEach(r => {
-            testerCounts[r.testerId] = (testerCounts[r.testerId] || 0) + 1;
-        });
-
-        const sorted = Object.entries(testerCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-        if (sorted.length === 0) {
-            return interaction.reply({ content: '📭 No tests have been conducted yet.', ephemeral: true });
-        }
-
-        let msg = '**🏆 TESTER LEADERBOARD**\n━━━━━━━━━━━━━━━━━━━━\n';
-        let rank = 1;
-        for (const [id, count] of sorted) {
-            let name = id;
-            try {
-                const user = await client.users.fetch(id);
-                name = user.username;
-            } catch (e) { }
-            const medal = rank === 1 ? '👑 ' : rank === 2 ? '🥈 ' : rank === 3 ? '🥉 ' : '';
-            msg += `\n**${rank}.** ${medal}${name} — ${count} test${count !== 1 ? 's' : ''}`;
-            rank++;
-        }
-
-        await interaction.reply({ content: msg, ephemeral: true });
-    }
-});
-
-// ==================== BUTTON HANDLER ====================
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
-    if (!interaction.customId.startsWith('test_')) return;
-
-    if (!await isTester(interaction.member)) {
-        return interaction.reply({ content: '❌ Only testers can do this.', ephemeral: true });
-    }
-    if (!await canTest(interaction.member)) {
-        return interaction.reply({ content: '❌ Testers must be in the server for at least 7 days.', ephemeral: true });
-    }
-
-    const parts = interaction.customId.split('_');
-    const kit = parts[1];
-    const playerId = parts[2];
-
-    if (playerId === interaction.user.id) {
-        return interaction.reply({ content: '❌ You cannot test yourself.', ephemeral: true });
-    }
-
-    if (!testQueue[kit] || !testQueue[kit].includes(playerId)) {
-        return interaction.reply({ content: '❌ This player is no longer in the queue.', ephemeral: true });
-    }
-
-    testQueue[kit] = testQueue[kit].filter(id => id !== playerId);
-
-    await interaction.reply({ content: `✅ Starting test with <@${playerId}> for **${KIT_NAMES[kit]}**...`, ephemeral: true });
-
-    const channel = await createTestChannel(interaction.guild, playerId, interaction.user.id, kit);
-    await channel.send({
-        content: `**🔍 TIER TEST STARTED**\n━━━━━━━━━━━━━━━━━━━━\n${KIT_EMOJIS[kit]} **Kit:** ${KIT_NAMES[kit]}\n👤 **Player:** <@${playerId}>\n👤 **Tester:** <@${interaction.user.id}>\n🕒 **Start:** <t:${Math.floor(Date.now() / 1000)}:F>\n━━━━━━━━━━━━━━━━━━━━\nUse \`/testresult\` when done.`
-    });
-    await channel.send(`<@${playerId}> <@${interaction.user.id}>`);
-});
-
-// ==================== FIRST MODAL HANDLER (Assessment) ====================
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isModalSubmit()) return;
-    if (interaction.customId !== 'playerAssessmentModal') return;
-
-    const testData = activeTests[interaction.channelId];
-    if (!testData) {
-        return interaction.reply({ content: '❌ This test session has expired.', ephemeral: true });
-    }
-
-    const defeated = interaction.fields.getTextInputValue('defeated').toLowerCase();
-    const movement = interaction.fields.getTextInputValue('movement').toLowerCase();
-    const aim = interaction.fields.getTextInputValue('aim').toLowerCase();
-    const overall = interaction.fields.getTextInputValue('overall');
-
-    // Validate inputs
-    if (!['yes', 'close', 'no'].includes(defeated)) {
-        return interaction.reply({ content: '❌ Invalid value for "defeated". Use yes, close, or no.', ephemeral: true });
-    }
-    if (!['poor', 'average', 'good', 'excellent'].includes(movement)) {
-        return interaction.reply({ content: '❌ Invalid value for movement. Use poor, average, good, or excellent.', ephemeral: true });
-    }
-    if (!['poor', 'average', 'good', 'excellent'].includes(aim)) {
-        return interaction.reply({ content: '❌ Invalid value for aim. Use poor, average, good, or excellent.', ephemeral: true });
-    }
-    if (isNaN(parseInt(overall)) || parseInt(overall) < 1 || parseInt(overall) > 10) {
-        return interaction.reply({ content: '❌ Overall rating must be a number between 1 and 10.', ephemeral: true });
-    }
-
-    const answers = { defeated, movement, aim, overall: parseInt(overall) };
-    const suggestedRank = suggestRank(answers);
-
-    // Store answers temporarily
-    pendingRankSelections[interaction.channelId] = {
-        testData,
-        answers,
-        suggestedRank
-    };
-
-    // Create rank selection dropdown
-    const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('rankSelect')
-        .setPlaceholder(`Suggested: ${suggestedRank.emoji} ${suggestedRank.name} - ${suggestedRank.description}`)
-        .addOptions(RANKS.map(rank => ({
-            label: `${rank.emoji} ${rank.name}`,
-            description: rank.description,
-            value: rank.name
-        })));
-
-    const row = new ActionRowBuilder().addComponents(selectMenu);
-
-    await interaction.reply({
-        content: `**📊 Player Assessment Summary**\n━━━━━━━━━━━━━━━━━━━━\n🏆 Defeated tester: ${defeated}\n🎯 Movement: ${movement}\n🔫 Aim: ${aim}\n⭐ Overall: ${overall}/10\n━━━━━━━━━━━━━━━━━━━━\n**Suggested Rank:** ${suggestedRank.emoji} ${suggestedRank.name}\n\nSelect the final rank to assign to the player:`,
-        components: [row],
-        ephemeral: true
-    });
-});
-
-// ==================== RANK SELECTION HANDLER ====================
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isStringSelectMenu()) return;
-    if (interaction.customId !== 'rankSelect') return;
-
-    const selectedRankName = interaction.values[0];
-    const selectedRank = RANKS.find(r => r.name === selectedRankName);
-    if (!selectedRank) return;
-
-    const pending = pendingRankSelections[interaction.channelId];
-    if (!pending) {
-        return interaction.reply({ content: '❌ Session expired. Please run /testresult again.', ephemeral: true });
-    }
-
-    const { testData, answers, suggestedRank } = pending;
-    delete pendingRankSelections[interaction.channelId];
-
-    const result = {
-        playerId: testData.playerId,
-        testerId: testData.testerId,
-        kit: testData.kit,
-        rank: selectedRank.name,
-        rankEmoji: selectedRank.emoji,
-        answers: answers,
-        suggestedRank: suggestedRank.name,
-        notes: '',
-        date: new Date().toISOString()
-    };
-    testResults.push(result);
-
-    // Update cooldown
-    testCooldown[`${testData.playerId}_${testData.kit}`] = Date.now();
-
-    // Update tester stats
-    testerStats[testData.testerId] = (testerStats[testData.testerId] || 0) + 1;
-
-    // Collusion check
-    const collusionCount = checkCollusion(testData.playerId, testData.testerId);
-    if (collusionCount >= 2) {
-        logToStaffChannel(interaction.guild, `⚠️ **Collusion Detected**: <@${testData.testerId}> and <@${testData.playerId}> have tested each other ${collusionCount} times.`);
-    }
-
-    // Post to public results channel
-    const publicChannel = interaction.guild.channels.cache.find(c => c.name === '📜｜test-results');
-    if (publicChannel) {
-        const embed = new EmbedBuilder()
-            .setColor(selectedRank.level >= 8 ? 0xFFD700 : selectedRank.level >= 6 ? 0xC0C0C0 : 0xCD7F32)
-            .setTitle(`${KIT_EMOJIS[testData.kit]} New Test Result`)
-            .addFields(
-                { name: 'Player', value: `<@${testData.playerId}>`, inline: true },
-                { name: 'Kit', value: KIT_NAMES[testData.kit], inline: true },
-                { name: 'Assigned Rank', value: `${selectedRank.emoji} ${selectedRank.name}`, inline: true },
-                { name: 'Defeated Tester?', value: answers.defeated, inline: true },
-                { name: 'Movement', value: answers.movement, inline: true },
-                { name: 'Aim', value: answers.aim, inline: true },
-                { name: 'Overall Rating', value: `${answers.overall}/10`, inline: true },
-                { name: 'Tester', value: `<@${testData.testerId}>`, inline: true }
-            )
-            .setFooter({ text: suggestedRank.name !== selectedRank.name ? `⚠️ Tester overrode suggested rank (${suggestedRank.emoji} ${suggestedRank.name})` : `Rank matches assessment` })
+            .setColor(0x2C2F33)
+            .setTitle(`🎮 TEST SESSION — ${kitName}`)
+            .setDescription([
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `**Tester:** <@${interaction.user.id}>`,
+                `**Kit:** ${kitName}`,
+                `**Player:** <@${target.id}>`,
+                `**Region:** ${playerData.region}`,
+                `**Device:** ${playerData.device}`,
+                `**Current Rank:** ${playerData.rank || 'Unranked'}`,
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `**Commands:**`,
+                `• \`/start\` - Begin the test`,
+                `• \`/done\` - Complete the test`,
+                `• \`/close\` - Force close channel`
+            ].join('\n'))
+            .setImage(kitImage || null)
+            .setFooter({ text: 'Test session • Good luck!' })
             .setTimestamp();
-        await publicChannel.send({ embeds: [embed] });
+        
+        await testChannel.send({ content: `<@${target.id}> <@${interaction.user.id}>`, embeds: [embed] });
+        await updateQueueEmbed(guild, kitName);
+        await interaction.reply({ content: `✅ Test channel created: ${testChannel}`, flags: 64 });
+        return;
     }
-
-    // Log to staff channel
-    logToStaffChannel(interaction.guild, `📝 **Test Completed**\n${KIT_NAMES[testData.kit]} | Rank: ${selectedRank.emoji} ${selectedRank.name}\nPlayer: <@${testData.playerId}> | Tester: <@${testData.testerId}>`);
-
-    // Send result in test channel
-    await interaction.channel.send({
-        content: `✅ **TEST COMPLETE**\n━━━━━━━━━━━━━━━━━━━━\n${KIT_EMOJIS[testData.kit]} **Kit:** ${KIT_NAMES[testData.kit]}\n${selectedRank.emoji} **Assigned Rank:** ${selectedRank.name}\n━━━━━━━━━━━━━━━━━━━━\n**Assessment:**\n🏆 Defeated tester: ${answers.defeated}\n🎯 Movement: ${answers.movement}\n🔫 Aim: ${answers.aim}\n⭐ Overall: ${answers.overall}/10\n━━━━━━━━━━━━━━━━━━━━\n🔒 This channel will close in 15 seconds.`
-    });
-
-    // Lock channel
-    await interaction.channel.permissionOverwrites.edit(testData.playerId, { SendMessages: false });
-    await interaction.channel.permissionOverwrites.edit(testData.testerId, { SendMessages: false });
-
-    // Delete after 15 seconds
-    setTimeout(() => {
-        interaction.channel.delete().catch(() => {});
-        delete activeTests[interaction.channelId];
-    }, 15000);
-
-    await interaction.reply({ content: `✅ Result recorded! **${selectedRank.emoji} ${selectedRank.name}** assigned to <@${testData.playerId}>.`, ephemeral: true });
+    
+    if (commandName === 'start' && (isTester || isAdmin)) {
+        const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setTitle('⏱️ TEST STARTED!')
+            .setDescription('The test has begun. Use `/done` when finished.')
+            .setTimestamp();
+        
+        await interaction.reply({ embeds: [embed] });
+        return;
+    }
+    
+    if (commandName === 'done' && (isTester || isAdmin)) {
+        const channelName = channel.name;
+        const match = channelName.match(/test-(.+)-/);
+        if (!match) {
+            return interaction.reply({ content: '❌ This is not a test channel!', flags: 64 });
+        }
+        
+        const username = match[1];
+        let playerId = null;
+        for (const [id, data] of Object.entries(db.players)) {
+            if (data.username === username) {
+                playerId = id;
+                break;
+            }
+        }
+        
+        if (!playerId) {
+            return interaction.reply({ content: '❌ Player not found!', flags: 64 });
+        }
+        
+        await showDoneModal(interaction, playerId, username);
+        return;
+    }
+    
+    if (commandName === 'close' && (isTester || isAdmin)) {
+        await interaction.reply({ content: '🔒 Closing channel in 3 seconds...', flags: 64 });
+        setTimeout(() => channel.delete().catch(() => {}), 3000);
+        return;
+    }
+    
+    // Admin/Staff Commands
+    if (commandName === 'deploy' && isAdmin) {
+        const kitName = options.getString('kit');
+        const queueChannel = guild.channels.cache.find(c => c.name === QUEUE_CHANNEL);
+        
+        if (!queueChannel) {
+            return interaction.reply({ content: `❌ Channel #${QUEUE_CHANNEL} not found!`, flags: 64 });
+        }
+        
+        if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
+        
+        const embed = new EmbedBuilder()
+            .setTitle(`⚔️ ${kitName} QUEUE — Waiting: 0`)
+            .setColor(0x2C2F33)
+            .setDescription('Loading queue data...');
+        
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`queue_position:${kitName}`)
+                .setLabel('📍 WHERE AM I?')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('📍')
+        );
+        
+        const message = await queueChannel.send({ embeds: [embed], components: [row] });
+        db.queues[kitName].messageId = message.id;
+        saveData();
+        await updateQueueEmbed(guild, kitName);
+        
+        setInterval(async () => {
+            const g = client.guilds.cache.get(GUILD_ID);
+            if (g) await updateQueueEmbed(g, kitName);
+        }, 60 * 60 * 1000);
+        
+        await interaction.reply({ content: `✅ Deployed ${kitName} queue embed in #${QUEUE_CHANNEL}!`, flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'removequeue' && isAdmin) {
+        const kitName = options.getString('kit');
+        const queue = db.queues[kitName];
+        
+        if (queue && queue.messageId) {
+            const queueChannel = guild.channels.cache.find(c => c.name === QUEUE_CHANNEL);
+            if (queueChannel) {
+                const msg = await queueChannel.messages.fetch(queue.messageId).catch(() => null);
+                if (msg) await msg.delete().catch(() => {});
+            }
+        }
+        
+        delete db.queues[kitName];
+        saveData();
+        await interaction.reply({ content: `✅ Removed ${kitName} queue!`, flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'refreshqueue' && isAdmin) {
+        const kitName = options.getString('kit');
+        await updateQueueEmbed(guild, kitName);
+        await interaction.reply({ content: `✅ Refreshed ${kitName} queue!`, flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'kit' && isAdmin) {
+        const action = options.getString('action');
+        const name = options.getString('name');
+        const image = options.getString('image');
+        
+        if (action === 'add') {
+            if (!name || !image) return interaction.reply({ content: '❌ Usage: /kit add [name] [image_url]', flags: 64 });
+            db.kits[name] = image;
+            saveData();
+            await interaction.reply({ content: `✅ Kit **${name}** added!`, flags: 64 });
+        } else if (action === 'remove') {
+            if (!name) return interaction.reply({ content: '❌ Usage: /kit remove [name]', flags: 64 });
+            delete db.kits[name];
+            saveData();
+            await interaction.reply({ content: `✅ Kit **${name}** removed!`, flags: 64 });
+        } else if (action === 'list') {
+            const list = Object.keys(db.kits).join(', ') || 'No kits';
+            await interaction.reply({ content: `📦 **Available Kits:**\n${list}`, flags: 64 });
+        }
+        return;
+    }
+    
+    if (commandName === 'check' && (isTester || isAdmin)) {
+        const target = options.getMember('player');
+        const data = db.players[target.id];
+        
+        if (!data) {
+            return interaction.reply({ content: `❌ ${target.user.tag} has not applied yet!`, flags: 64 });
+        }
+        
+        let history = '';
+        for (let i = 0; i < Math.min(data.testHistory.length, 5); i++) {
+            const t = data.testHistory[i];
+            history += `• ${new Date(t.date).toLocaleDateString()} → **${t.rank}** (${t.score}) - ${t.notes.substring(0, 50)}\n`;
+        }
+        if (!history) history = '*No test history*';
+        
+        const embed = new EmbedBuilder()
+            .setColor(0x3498DB)
+            .setTitle(`📊 ${target.user.tag}`)
+            .setDescription([
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `**Username:** ${data.username}`,
+                `**Region:** ${data.region}`,
+                `**Device:** ${data.device}`,
+                `**Current Rank:** ${data.rank || 'Unranked'}`,
+                `**Applied:** ${new Date(data.appliedAt).toLocaleDateString()}`,
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `**Recent Tests:**\n${history}`,
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+            ].join('\n'));
+        
+        await interaction.reply({ embeds: [embed], flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'forcerank' && isAdmin) {
+        const target = options.getMember('player');
+        const rank = options.getString('rank');
+        
+        await setRank(guild, target.id, rank);
+        await interaction.reply({ content: `✅ Set ${target.user.tag} to **${rank}**!`, flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'reset' && isAdmin) {
+        const target = options.getMember('player');
+        delete db.players[target.id];
+        saveData();
+        
+        const applicantRole = await getRole(guild, APPLICANT_ROLE);
+        if (applicantRole && target.roles.cache.has(applicantRole.id)) {
+            await target.roles.remove(applicantRole);
+        }
+        
+        for (const rank of RANK_ROLES) {
+            const role = await getRole(guild, rank);
+            if (role && target.roles.cache.has(role.id)) await target.roles.remove(role);
+        }
+        
+        await interaction.reply({ content: `✅ Reset ${target.user.tag} completely!`, flags: 64 });
+        return;
+    }
+    
+    if (commandName === 'help') {
+        const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setTitle('📋 Tier Bot Commands')
+            .setDescription([
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                `**👤 Player Commands:**`,
+                `\`/apply\` - Apply as Combat Learner`,
+                `\`/request\` - Request a test`,
+                `\`/cancel\` - Cancel queue request`,
+                `\`/position\` - Check queue position`,
+                ``,
+                `**🎮 Tester Commands:**`,
+                `\`/queue [kit]\` - View waiting queue`,
+                `\`/testnow @player\` - Start test`,
+                `\`/start\` - Begin test timer`,
+                `\`/done\` - Complete test`,
+                `\`/close\` - Force close channel`,
+                ``,
+                `**⚙️ Admin Commands:**`,
+                `\`/deploy queue [kit]\` - Deploy queue embed`,
+                `\`/removequeue [kit]\` - Remove queue`,
+                `\`/refreshqueue [kit]\` - Refresh queue`,
+                `\`/kit add/remove/list\` - Manage kits`,
+                `\`/check @user\` - Lookup player`,
+                `\`/forcerank @user [rank]\` - Force rank`,
+                `\`/reset @user\` - Reset player`,
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+            ].join('\n'));
+        
+        await interaction.reply({ embeds: [embed], flags: 64 });
+        return;
+    }
 });
 
-// ==================== ERROR HANDLING ====================
-process.on('unhandledRejection', error => {
-    console.error('Unhandled promise rejection:', error);
-});
+// ==================== ERROR HANDLERS ====================
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
 client.login(TOKEN);
