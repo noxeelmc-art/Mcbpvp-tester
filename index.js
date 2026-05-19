@@ -48,7 +48,6 @@ const TITLES = [
 ];
 
 // Custom kit symbols (replace with your emoji IDs after uploading)
-// Format: <:emojiname:emojiid>
 const KIT_SYMBOLS = {
     'Sword': '<:sword_custom:>',
     'Axe': '<:axe_custom:>',
@@ -356,64 +355,63 @@ async function showDoneModal(interaction, playerId, playerName, kitName) {
     await interaction.showModal(modal);
 }
 
-// ==================== REGISTER COMMANDS ====================
+// ==================== REGISTER COMMANDS (FIXED) ====================
 async function registerCommands() {
     const kitChoices = GAMEMODES.map(k => ({ name: k.name, value: k.name }));
     
     const commands = [
-        // Player commands
         { name: 'apply', description: 'Apply to become a Combat Learner' },
         { name: 'request', description: 'Request a test for a specific gamemode' },
         { name: 'cancel', description: 'Cancel your pending test request' },
         { name: 'position', description: 'Check your position in queues' },
-        { name: 'profile', description: 'View your Minecraft profile', options: [{ name: 'user', type: 6, required: false }] },
-        { name: 'setavatar', description: 'Set custom avatar for your profile', options: [{ name: 'image_url', type: 3, required: true }] },
+        { name: 'profile', description: 'View your Minecraft profile', options: [{ name: 'user', type: 6, description: 'User to view', required: false }] },
+        { name: 'setavatar', description: 'Set custom avatar for your profile', options: [{ name: 'image_url', type: 3, description: 'Image URL', required: true }] },
         { name: 'resetavatar', description: 'Reset to default Steve avatar' },
         { name: 'history', description: 'View your test history' },
         { name: 'leaderboard', description: 'View top players by points' },
         { name: 'stats', description: 'View your stats per kit' },
         { name: 'rankup', description: 'Check points needed for next title' },
         { name: 'notify', description: 'Toggle DM notifications when picked from queue' },
-        
-        // Tester commands
-        { name: 'queue', description: 'View waiting queue for a kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
-        { name: 'testnow', description: 'Start a test with a player', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'start', description: 'Start the test timer (use in test channel)' },
+        { name: 'queue', description: 'View waiting queue for a kit', options: [{ name: 'kit', type: 3, description: 'Select a kit', required: true, choices: kitChoices }] },
+        { name: 'testnow', description: 'Start a test with a player', options: [{ name: 'player', type: 6, description: 'Player to test', required: true }] },
+        { name: 'claim', description: 'Claim a player from queue', options: [{ name: 'player', type: 6, description: 'Player to claim', required: true }] },
+        { name: 'start', description: 'Start the test timer' },
         { name: 'done', description: 'Complete the current test' },
         { name: 'close', description: 'Force close the test channel' },
-        { name: 'notes', description: 'Add private note about a player', options: [{ name: 'player', type: 6, required: true }, { name: 'note', type: 3, required: true }] },
-        { name: 'warn', description: 'Warn a player', options: [{ name: 'player', type: 6, required: true }, { name: 'reason', type: 3, required: true }] },
-        { name: 'strike', description: 'Add a strike to a player', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'blacklist', description: 'Blacklist a player from testing', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'unblacklist', description: 'Remove player from blacklist', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'claim', description: 'Claim a player from queue', options: [{ name: 'player', type: 6, required: true }] },
-        
-        // Admin commands
-        { name: 'deploy', description: '[Admin] Deploy queue embed for a kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
-        { name: 'removequeue', description: '[Admin] Remove queue embed for a kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
-        { name: 'refreshqueue', description: '[Admin] Manually refresh queue embed', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }] },
-        { name: 'kit', description: '[Admin] Manage kit images', options: [
-            { name: 'action', type: 3, required: true, choices: [{ name: 'add', value: 'add' }, { name: 'remove', value: 'remove' }, { name: 'list', value: 'list' }] },
-            { name: 'kit', type: 3, required: false, choices: kitChoices },
-            { name: 'image', type: 3, required: false }
+        { name: 'notes', description: 'Add private note about a player', options: [{ name: 'player', type: 6, description: 'Player', required: true }, { name: 'note', type: 3, description: 'Note content', required: true }] },
+        { name: 'warn', description: 'Warn a player', options: [{ name: 'player', type: 6, description: 'Player to warn', required: true }, { name: 'reason', type: 3, description: 'Warning reason', required: true }] },
+        { name: 'strike', description: 'Add a strike to a player', options: [{ name: 'player', type: 6, description: 'Player', required: true }] },
+        { name: 'blacklist', description: 'Blacklist a player from testing', options: [{ name: 'player', type: 6, description: 'Player to blacklist', required: true }] },
+        { name: 'unblacklist', description: 'Remove player from blacklist', options: [{ name: 'player', type: 6, description: 'Player to unblacklist', required: true }] },
+        { name: 'deploy', description: 'Deploy queue embed for a kit', options: [{ name: 'kit', type: 3, description: 'Select a kit', required: true, choices: kitChoices }] },
+        { name: 'removequeue', description: 'Remove queue embed for a kit', options: [{ name: 'kit', type: 3, description: 'Select a kit', required: true, choices: kitChoices }] },
+        { name: 'refreshqueue', description: 'Manually refresh queue embed', options: [{ name: 'kit', type: 3, description: 'Select a kit', required: true, choices: kitChoices }] },
+        { name: 'kit', description: 'Manage kit images', options: [
+            { name: 'action', type: 3, description: 'Add, remove, or list', required: true, choices: [{ name: 'add', value: 'add' }, { name: 'remove', value: 'remove' }, { name: 'list', value: 'list' }] },
+            { name: 'kit', type: 3, description: 'Kit name', required: false, choices: kitChoices },
+            { name: 'image', type: 3, description: 'Image URL', required: false }
         ] },
-        { name: 'check', description: '[Staff] Check player info', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'forcerank', description: '[Admin] Force change player rank', options: [{ name: 'player', type: 6, required: true }, { name: 'rank', type: 3, required: true, choices: RANK_ROLES.map(r => ({ name: r, value: r })) }] },
-        { name: 'setpoints', description: '[Admin] Set player points', options: [{ name: 'player', type: 6, required: true }, { name: 'points', type: 4, required: true }] },
-        { name: 'reset', description: '[Admin] Reset player completely', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'recalculate', description: '[Admin] Recalculate player points', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'export', description: '[Admin] Export all player data to CSV' },
-        { name: 'backup', description: '[Admin] Manual database backup' },
-        { name: 'announce', description: '[Admin] Announce to all testers', options: [{ name: 'message', type: 3, required: true }] },
-        { name: 'audit', description: '[Admin] View staff actions on a player', options: [{ name: 'player', type: 6, required: true }] },
-        { name: 'setcooldown', description: '[Admin] Set cooldown between requests (minutes)', options: [{ name: 'minutes', type: 4, required: true }] },
-        { name: 'maxqueue', description: '[Admin] Set max queue size per kit', options: [{ name: 'kit', type: 3, required: true, choices: kitChoices }, { name: 'size', type: 4, required: true }] },
+        { name: 'check', description: 'Check player info', options: [{ name: 'player', type: 6, description: 'Player to check', required: true }] },
+        { name: 'forcerank', description: 'Force change player rank', options: [{ name: 'player', type: 6, description: 'Player', required: true }, { name: 'rank', type: 3, description: 'New rank', required: true, choices: RANK_ROLES.map(r => ({ name: r, value: r })) }] },
+        { name: 'setpoints', description: 'Set player points', options: [{ name: 'player', type: 6, description: 'Player', required: true }, { name: 'points', type: 4, description: 'Points amount', required: true }] },
+        { name: 'reset', description: 'Reset player completely', options: [{ name: 'player', type: 6, description: 'Player to reset', required: true }] },
+        { name: 'recalculate', description: 'Recalculate player points', options: [{ name: 'player', type: 6, description: 'Player', required: true }] },
+        { name: 'export', description: 'Export all player data to CSV' },
+        { name: 'backup', description: 'Manual database backup' },
+        { name: 'announce', description: 'Announce to all testers', options: [{ name: 'message', type: 3, description: 'Announcement message', required: true }] },
+        { name: 'audit', description: 'View staff actions on a player', options: [{ name: 'player', type: 6, description: 'Player', required: true }] },
+        { name: 'setcooldown', description: 'Set cooldown between requests', options: [{ name: 'minutes', type: 4, description: 'Minutes', required: true }] },
+        { name: 'maxqueue', description: 'Set max queue size per kit', options: [{ name: 'kit', type: 3, description: 'Select a kit', required: true, choices: kitChoices }, { name: 'size', type: 4, description: 'Max size', required: true }] },
         { name: 'help', description: 'Show all commands' }
     ];
     
     const rest = new REST({ version: '10' }).setToken(TOKEN);
-    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('✅ Commands registered');
+    try {
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+        console.log('✅ Commands registered successfully');
+    } catch (error) {
+        console.error('❌ Failed to register commands:', error);
+    }
 }
 
 // ==================== HELP COMMAND ====================
@@ -429,7 +427,7 @@ async function showHelp(interaction) {
             `\`/cancel\` - Cancel queue request`,
             `\`/position\` - Check queue position`,
             `\`/profile\` - View your Minecraft profile`,
-            `\`/setavatar\` - Custom avatar for profile`,
+            `\`/setavatar\` - Custom avatar`,
             `\`/resetavatar\` - Reset to Steve`,
             `\`/history\` - View test history`,
             `\`/leaderboard\` - Top players`,
@@ -444,7 +442,7 @@ async function showHelp(interaction) {
             `\`/start\` - Begin test`,
             `\`/done\` - Complete test`,
             `\`/close\` - Force close`,
-            `\`/notes @user\` - Add private note`,
+            `\`/notes @user\` - Add note`,
             `\`/warn @user\` - Warn player`,
             `\`/strike @user\` - Add strike`,
             `\`/blacklist @user\` - Ban from testing`,
@@ -459,13 +457,13 @@ async function showHelp(interaction) {
             `\`/setpoints @user\` - Set points`,
             `\`/reset @user\` - Reset player`,
             `\`/recalculate @user\` - Recalc points`,
-            `\`/export\` - Export data to CSV`,
+            `\`/export\` - Export data`,
             `\`/backup\` - Manual backup`,
-            `\`/announce\` - Announce to testers`,
-            `\`/audit @user\` - Staff actions log`,
-            `\`/setcooldown\` - Set request cooldown`,
+            `\`/announce\` - Announce`,
+            `\`/audit @user\` - Staff actions`,
+            `\`/setcooldown\` - Set cooldown`,
             `\`/maxqueue\` - Set queue limit`,
-            `\`/help\` - Show this menu`,
+            `\`/help\` - This menu`,
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
         ].join('\n'))
         .setFooter({ text: `Cooldown: ${db.settings.cooldown} min | Max Queue: ${db.settings.maxQueueSize} | Blacklisted: ${db.blacklist.length}` })
@@ -485,7 +483,7 @@ client.once('ready', async () => {
     console.log('\n📋 Detected Tester Roles:');
     for (const kit of GAMEMODES) {
         const role = await getRole(guild, kit.testerRole);
-        console.log(`   ${kit.name}: ${role ? '✅ ' + kit.testerRole : '❌ Missing - create role "' + kit.testerRole + '"'}`);
+        console.log(`   ${kit.name}: ${role ? '✅ ' + kit.testerRole : '❌ Missing'}`);
     }
     
     for (const kit of GAMEMODES) {
@@ -512,7 +510,7 @@ client.on('interactionCreate', async interaction => {
             
             const applicantRole = await getRole(interaction.guild, APPLICANT_ROLE);
             if (!applicantRole) {
-                return interaction.reply({ content: '❌ Combat Learner role not found! Please create it.', flags: 64 });
+                return interaction.reply({ content: '❌ Combat Learner role not found!', flags: 64 });
             }
             
             if (interaction.member.roles.cache.has(applicantRole.id)) {
@@ -668,21 +666,20 @@ client.on('interactionCreate', async interaction => {
         }
         
         if (db.blacklist.includes(interaction.user.id)) {
-            return interaction.reply({ content: '❌ You are blacklisted from testing! Contact staff.', flags: 64 });
+            return interaction.reply({ content: '❌ You are blacklisted! Contact staff.', flags: 64 });
         }
         
         const player = db.players[interaction.user.id];
         const cooldownRemaining = (player.lastRequestAt + db.settings.cooldown * 60 * 1000) - Date.now();
         if (cooldownRemaining > 0) {
             const minutes = Math.ceil(cooldownRemaining / 60000);
-            return interaction.reply({ content: `❌ Please wait ${minutes} minutes before requesting again!`, flags: 64 });
+            return interaction.reply({ content: `❌ Please wait ${minutes} minutes!`, flags: 64 });
         }
         
         if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
         
-        const maxSize = db.settings.maxQueueSize;
-        if (db.queues[kitName].waiting.length >= maxSize) {
-            return interaction.reply({ content: `❌ ${kitName} queue is full (${maxSize} max)! Try later.`, flags: 64 });
+        if (db.queues[kitName].waiting.length >= db.settings.maxQueueSize) {
+            return interaction.reply({ content: `❌ ${kitName} queue is full!`, flags: 64 });
         }
         
         if (db.queues[kitName].waiting.includes(interaction.user.id)) {
@@ -705,8 +702,7 @@ client.on('interactionCreate', async interaction => {
     const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
     const isTester = isAdmin || member.roles.cache.some(r => r.name && r.name.includes('Tester'));
     
-    // ==================== PLAYER COMMANDS ====================
-    
+    // Player Commands
     if (commandName === 'apply') {
         const applyChannel = guild.channels.cache.find(c => c.name === APPLY_CHANNEL);
         if (channel.id !== applyChannel?.id) {
@@ -728,7 +724,7 @@ client.on('interactionCreate', async interaction => {
                 .addOptions(GAMEMODES.map(k => ({ label: k.name, value: k.name, description: `Join ${k.name} queue` })))
         );
         
-        await interaction.reply({ content: '🎮 **Select a gamemode to test:**', components: [row], flags: 64 });
+        await interaction.reply({ content: '🎮 **Select a gamemode:**', components: [row], flags: 64 });
         return;
     }
     
@@ -742,15 +738,13 @@ client.on('interactionCreate', async interaction => {
                 removed = true;
             }
         }
-        
-        await interaction.reply({ content: removed ? '✅ Removed from all queues!' : '❌ You are not in any queue!', flags: 64 });
+        await interaction.reply({ content: removed ? '✅ Removed from queues!' : '❌ Not in any queue!', flags: 64 });
         return;
     }
     
     if (commandName === 'position') {
         let message = '**Your Queue Positions:**\n━━━━━━━━━━━━━━━━━━━━\n';
         let inQueue = false;
-        
         for (const kit of GAMEMODES) {
             const queue = db.queues[kit.name];
             if (queue) {
@@ -761,8 +755,7 @@ client.on('interactionCreate', async interaction => {
                 }
             }
         }
-        
-        if (!inQueue) message += '*You are not in any queue*';
+        if (!inQueue) message += '*Not in any queue*';
         await interaction.reply({ content: message, flags: 64 });
         return;
     }
@@ -775,17 +768,15 @@ client.on('interactionCreate', async interaction => {
     
     if (commandName === 'setavatar') {
         const imageUrl = options.getString('image_url');
-        if (!imageUrl.match(/\.(png|jpg|jpeg|gif|webp)/i)) {
-            return interaction.reply({ content: '❌ Please provide a valid image URL!', flags: 64 });
+        if (!imageUrl?.match(/\.(png|jpg|jpeg|gif|webp)/i)) {
+            return interaction.reply({ content: '❌ Valid image URL required!', flags: 64 });
         }
-        
         if (!db.players[interaction.user.id]) {
             return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
         }
-        
         db.players[interaction.user.id].customAvatar = imageUrl;
         saveData();
-        await interaction.reply({ content: '✅ Your profile avatar has been updated!', flags: 64 });
+        await interaction.reply({ content: '✅ Avatar updated!', flags: 64 });
         return;
     }
     
@@ -793,257 +784,136 @@ client.on('interactionCreate', async interaction => {
         if (!db.players[interaction.user.id]) {
             return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
         }
-        
         db.players[interaction.user.id].customAvatar = null;
         saveData();
-        await interaction.reply({ content: '✅ Your profile avatar has been reset to Steve!', flags: 64 });
+        await interaction.reply({ content: '✅ Avatar reset to Steve!', flags: 64 });
         return;
     }
     
     if (commandName === 'history') {
         const player = db.players[interaction.user.id];
-        if (!player) {
-            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
-        }
+        if (!player) return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
         
         let historyText = '';
         for (let i = 0; i < player.testHistory.length; i++) {
             const t = player.testHistory[i];
-            historyText += `${i+1}. ${new Date(t.date).toLocaleDateString()} | ${t.kit} | ${t.rank} | ${t.score} | +${t.pointsEarned}pts\n`;
+            historyText += `${i+1}. ${new Date(t.date).toLocaleDateString()} | ${t.kit} | ${t.rank} | +${t.pointsEarned}pts\n`;
         }
-        if (!historyText) historyText = '*No test history yet*';
-        
         const embed = new EmbedBuilder()
             .setColor(0x3498DB)
             .setTitle(`📜 ${player.username}'s Test History`)
-            .setDescription(`\`\`\`\n${historyText}\n\`\`\``)
+            .setDescription(historyText || '*No tests yet*')
             .setFooter({ text: `Total points: ${calculateTotalPoints(interaction.user.id)}` });
-        
         await interaction.reply({ embeds: [embed], flags: 64 });
         return;
     }
     
     if (commandName === 'leaderboard') {
-        const allPlayers = Object.entries(db.players).map(([id, data]) => ({
-            id: id,
-            username: data.username,
-            points: calculateTotalPoints(id)
-        }));
+        const allPlayers = Object.entries(db.players).map(([id, data]) => ({ id, username: data.username, points: calculateTotalPoints(id) }));
         allPlayers.sort((a, b) => b.points - a.points);
         
-        let leaderboardText = '';
+        let text = '';
         for (let i = 0; i < Math.min(allPlayers.length, 15); i++) {
-            const p = allPlayers[i];
-            leaderboardText += `${i+1}. **${p.username}** — ${p.points} pts\n`;
+            text += `${i+1}. **${allPlayers[i].username}** — ${allPlayers[i].points} pts\n`;
         }
-        
-        const embed = new EmbedBuilder()
-            .setColor(0xF1C40F)
-            .setTitle('🏆 LEADERBOARD')
-            .setDescription(leaderboardText || '*No players yet*')
-            .setFooter({ text: 'Top 15 players by total points' });
-        
+        const embed = new EmbedBuilder().setColor(0xF1C40F).setTitle('🏆 LEADERBOARD').setDescription(text || '*No players*');
         await interaction.reply({ embeds: [embed], flags: 64 });
         return;
     }
     
     if (commandName === 'stats') {
         const player = db.players[interaction.user.id];
-        if (!player) {
-            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
-        }
+        if (!player) return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
         
-        let statsText = '';
+        let text = '';
         for (const kit of KIT_ORDER) {
-            const rank = player.kitRanks?.[kit] || 'NA';
-            statsText += `${KIT_SYMBOLS[kit] || '📦'} ${kit}: ${rank}\n`;
+            text += `${KIT_SYMBOLS[kit] || '📦'} ${kit}: ${player.kitRanks?.[kit] || 'NA'}\n`;
         }
-        
-        const embed = new EmbedBuilder()
-            .setColor(0x2ECC71)
-            .setTitle(`📊 ${player.username}'s Kit Stats`)
-            .setDescription(statsText)
-            .setFooter({ text: `Total points: ${calculateTotalPoints(interaction.user.id)}` });
-        
+        const embed = new EmbedBuilder().setColor(0x2ECC71).setTitle(`📊 ${player.username}'s Kit Stats`).setDescription(text);
         await interaction.reply({ embeds: [embed], flags: 64 });
         return;
     }
     
     if (commandName === 'rankup') {
         const points = calculateTotalPoints(interaction.user.id);
-        const nextTitle = getTitleFromPoints(points + 1);
-        const pointsNeeded = nextTitle.minPoints - points;
-        
+        const next = getTitleFromPoints(points + 1);
+        const needed = next.minPoints - points;
         const embed = new EmbedBuilder()
             .setColor(0x9B59B6)
-            .setTitle(`📈 Rank Up Progress`)
-            .setDescription([
-                `**Current Title:** ${getTitleFromPoints(points).name}`,
-                `**Current Points:** ${points}`,
-                `**Next Title:** ${nextTitle.name}`,
-                `**Points Needed:** ${pointsNeeded} points`,
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `*Complete more tests to rank up!*`
-            ].join('\n'));
-        
+            .setTitle('📈 Rank Up Progress')
+            .setDescription(`**Current:** ${getTitleFromPoints(points).name}\n**Points:** ${points}\n**Next:** ${next.name}\n**Needed:** ${needed} points`);
         await interaction.reply({ embeds: [embed], flags: 64 });
         return;
     }
     
     if (commandName === 'notify') {
-        if (!db.players[interaction.user.id]) {
-            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
-        }
-        
-        db.players[interaction.user.id].notifyOnPick = !db.players[interaction.user.id].notifyOnPick;
+        if (!db.players[interaction.user.id]) return interaction.reply({ content: '❌ Apply first!', flags: 64 });
+        const p = db.players[interaction.user.id];
+        p.notifyOnPick = !p.notifyOnPick;
         saveData();
-        const status = db.players[interaction.user.id].notifyOnPick ? 'enabled' : 'disabled';
-        await interaction.reply({ content: `✅ DM notifications ${status}!`, flags: 64 });
+        await interaction.reply({ content: `✅ Notifications ${p.notifyOnPick ? 'ON' : 'OFF'}`, flags: 64 });
         return;
     }
     
-    // ==================== TESTER COMMANDS ====================
-    
-    if (!isTester && !isAdmin && ['queue', 'testnow', 'start', 'done', 'close', 'notes', 'warn', 'strike', 'blacklist', 'unblacklist', 'claim', 'check'].includes(commandName)) {
-        return interaction.reply({ content: '❌ You need a **Tester** role to use this command!', flags: 64 });
+    // Tester Only Commands
+    if (!isTester && !isAdmin && ['queue', 'testnow', 'claim', 'start', 'done', 'close', 'notes', 'warn', 'strike', 'blacklist', 'unblacklist', 'check'].includes(commandName)) {
+        return interaction.reply({ content: '❌ Tester role required!', flags: 64 });
     }
     
-    if (commandName === 'queue' && (isTester || isAdmin)) {
+    if (commandName === 'queue') {
         const kitName = options.getString('kit');
         const queue = db.queues[kitName];
-        
-        if (!queue || queue.waiting.length === 0) {
-            return interaction.reply({ content: `📭 **${kitName}** queue is empty!`, flags: 64 });
-        }
+        if (!queue?.waiting.length) return interaction.reply({ content: `📭 ${kitName} queue empty`, flags: 64 });
         
         const kitData = GAMEMODES.find(k => k.name === kitName);
         const requiredRole = kitData?.testerRole;
-        const hasRequiredRole = isAdmin || (requiredRole && member.roles.cache.some(r => r.name === requiredRole));
-        
-        if (!hasRequiredRole) {
-            return interaction.reply({ content: `❌ You need the **${requiredRole}** role to view ${kitName} queue!`, flags: 64 });
+        if (!isAdmin && requiredRole && !member.roles.cache.some(r => r.name === requiredRole)) {
+            return interaction.reply({ content: `❌ ${requiredRole} role required!`, flags: 64 });
         }
         
-        let list = `**${kitName} Queue (${queue.waiting.length} waiting):**\n━━━━━━━━━━━━━━━━━━━━\n`;
+        let list = `**${kitName} Queue (${queue.waiting.length}):**\n`;
         for (let i = 0; i < Math.min(queue.waiting.length, 10); i++) {
-            const playerId = queue.waiting[i];
-            const player = db.players[playerId];
-            list += `${i+1}. ${player?.username || 'Unknown'} (<@${playerId}>)\n`;
+            const pid = queue.waiting[i];
+            const p = db.players[pid];
+            list += `${i+1}. ${p?.username || 'Unknown'} (<@${pid}>)\n`;
         }
-        
         await interaction.reply({ content: list, flags: 64 });
         return;
     }
     
-    if (commandName === 'claim' && (isTester || isAdmin)) {
-        const target = options.getMember('player');
-        if (!target) return interaction.reply({ content: '❌ Player not found!', flags: 64 });
-        
-        let foundKit = null;
-        for (const kit of GAMEMODES) {
-            const queue = db.queues[kit.name];
-            if (queue && queue.waiting.includes(target.id)) {
-                foundKit = kit;
-                break;
-            }
-        }
-        
-        if (!foundKit) {
-            return interaction.reply({ content: '❌ Player is not in any queue!', flags: 64 });
-        }
-        
-        const playerData = db.players[target.id];
-        const queue = db.queues[foundKit.name];
-        queue.waiting = queue.waiting.filter(id => id !== target.id);
-        queue.testing.push({ userId: target.id, testerId: interaction.user.id });
-        saveData();
-        
-        const category = guild.channels.cache.find(c => c.name === QUEUE_CATEGORY && c.type === 4);
-        const testChannel = await guild.channels.create({
-            name: `test-${playerData.username}-${foundKit.name}`,
-            type: 0,
-            parent: category,
-            permissionOverwrites: [
-                { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-                { id: target.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-                { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-            ]
-        });
-        
-        if (playerData.notifyOnPick !== false) {
-            try {
-                await target.send(`🔔 **You have been picked for testing!**\n━━━━━━━━━━━━━━━━━━━━\n**Tester:** ${interaction.user.username}\n**Kit:** ${foundKit.name}\n**Channel:** ${testChannel.url}\n\nPlease join the channel to begin your test!`);
-            } catch(e) {}
-        }
-        
-        const kitImage = db.kits[foundKit.name];
-        const embed = new EmbedBuilder()
-            .setColor(0x2C2F33)
-            .setTitle(`${KIT_SYMBOLS[foundKit.name] || '🎮'} TEST SESSION — ${foundKit.name}`)
-            .setDescription([
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `**Tester:** <@${interaction.user.id}>`,
-                `**Kit:** ${foundKit.name}`,
-                `**Player:** <@${target.id}>`,
-                `**Region:** ${playerData.region}`,
-                `**Device:** ${playerData.device}`,
-                `**Current Rank:** ${playerData.rank || 'Unranked'}`,
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `**Commands:**`,
-                `• \`/start\` - Begin the test`,
-                `• \`/done\` - Complete the test`,
-                `• \`/close\` - Force close channel`
-            ].join('\n'))
-            .setImage(kitImage || null)
-            .setFooter({ text: 'Test session • Good luck!' })
-            .setTimestamp();
-        
-        await testChannel.send({ content: `<@${target.id}> <@${interaction.user.id}>`, embeds: [embed] });
-        await updateQueueEmbed(guild, foundKit.name);
-        await interaction.reply({ content: `✅ Claimed ${target.user.username} and created test channel: ${testChannel}`, flags: 64 });
-        return;
-    }
-    
-    if (commandName === 'testnow' && (isTester || isAdmin)) {
+    if (commandName === 'claim' || commandName === 'testnow') {
         const target = options.getMember('player');
         if (!target) return interaction.reply({ content: '❌ Player not found!', flags: 64 });
         
         const playerData = db.players[target.id];
-        if (!playerData) {
-            return interaction.reply({ content: '❌ Player has not applied yet! Use `/apply` first.', flags: 64 });
-        }
+        if (!playerData) return interaction.reply({ content: '❌ Player not applied!', flags: 64 });
         
         let kitName = null;
         let requiredRole = null;
-        
         for (const kit of GAMEMODES) {
-            const queue = db.queues[kit.name];
-            if (queue && queue.waiting.includes(target.id)) {
+            const q = db.queues[kit.name];
+            if (q?.waiting.includes(target.id)) {
                 kitName = kit.name;
                 requiredRole = kit.testerRole;
-                queue.waiting = queue.waiting.filter(id => id !== target.id);
-                queue.testing.push({ userId: target.id, testerId: interaction.user.id });
+                q.waiting = q.waiting.filter(id => id !== target.id);
+                q.testing.push({ userId: target.id, testerId: interaction.user.id });
                 saveData();
                 break;
             }
         }
-        
-        if (!kitName) {
-            return interaction.reply({ content: '❌ Player is not in any queue!', flags: 64 });
-        }
+        if (!kitName) return interaction.reply({ content: '❌ Player not in any queue!', flags: 64 });
         
         if (!isAdmin && requiredRole && !member.roles.cache.some(r => r.name === requiredRole)) {
             for (const kit of GAMEMODES) {
-                const queue = db.queues[kit.name];
-                if (queue) {
-                    queue.waiting = queue.waiting.filter(id => id !== target.id);
-                    queue.testing = queue.testing.filter(t => t.userId !== target.id);
+                const q = db.queues[kit.name];
+                if (q) {
+                    q.waiting = q.waiting.filter(id => id !== target.id);
+                    q.testing = q.testing.filter(t => t.userId !== target.id);
                 }
             }
             db.queues[kitName].waiting.push(target.id);
             saveData();
-            return interaction.reply({ content: `❌ You need the **${requiredRole}** role to test ${kitName}!`, flags: 64 });
+            return interaction.reply({ content: `❌ ${requiredRole} role required!`, flags: 64 });
         }
         
         const category = guild.channels.cache.find(c => c.name === QUEUE_CATEGORY && c.type === 4);
@@ -1060,437 +930,273 @@ client.on('interactionCreate', async interaction => {
         });
         
         if (playerData.notifyOnPick !== false) {
-            try {
-                await target.send(`🔔 **You have been picked for testing!**\n━━━━━━━━━━━━━━━━━━━━\n**Tester:** ${interaction.user.username}\n**Kit:** ${kitName}\n**Channel:** ${testChannel.url}\n\nPlease join the channel to begin your test!`);
-            } catch(e) {}
+            try { await target.send(`🔔 **Test picked!**\nTester: ${interaction.user.username}\nKit: ${kitName}\nChannel: ${testChannel.url}`); } catch(e) {}
         }
         
-        const kitImage = db.kits[kitName];
         const embed = new EmbedBuilder()
             .setColor(0x2C2F33)
-            .setTitle(`${KIT_SYMBOLS[kitName] || '🎮'} TEST SESSION — ${kitName}`)
+            .setTitle(`${KIT_SYMBOLS[kitName] || '🎮'} TEST — ${kitName}`)
             .setDescription([
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
                 `**Tester:** <@${interaction.user.id}>`,
-                `**Kit:** ${kitName}`,
                 `**Player:** <@${target.id}>`,
                 `**Region:** ${playerData.region}`,
                 `**Device:** ${playerData.device}`,
-                `**Current Rank:** ${playerData.rank || 'Unranked'}`,
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `**Commands:**`,
-                `• \`/start\` - Begin the test`,
-                `• \`/done\` - Complete the test`,
-                `• \`/close\` - Force close channel`
+                `**Rank:** ${playerData.rank || 'Unranked'}`,
+                ``,
+                `Use \`/start\` → \`/done\` → \`/close\``
             ].join('\n'))
-            .setImage(kitImage || null)
-            .setFooter({ text: 'Test session • Good luck!' })
-            .setTimestamp();
+            .setImage(db.kits[kitName] || null);
         
         await testChannel.send({ content: `<@${target.id}> <@${interaction.user.id}>`, embeds: [embed] });
         await updateQueueEmbed(guild, kitName);
-        await interaction.reply({ content: `✅ Test channel created: ${testChannel}`, flags: 64 });
+        await interaction.reply({ content: `✅ Test channel: ${testChannel}`, flags: 64 });
         return;
     }
     
-    if (commandName === 'start' && (isTester || isAdmin)) {
-        const embed = new EmbedBuilder()
-            .setColor(0x2ECC71)
-            .setTitle('⏱️ TEST STARTED!')
-            .setDescription('The test has begun. Use `/done` when finished.')
-            .setTimestamp();
-        
+    if (commandName === 'start') {
+        const embed = new EmbedBuilder().setColor(0x2ECC71).setTitle('⏱️ TEST STARTED!').setDescription('Use `/done` when finished');
         await interaction.reply({ embeds: [embed] });
         return;
     }
     
-    if (commandName === 'done' && (isTester || isAdmin)) {
-        const channelName = channel.name;
-        const match = channelName.match(/test-(.+)-(.+)/);
-        if (!match) {
-            return interaction.reply({ content: '❌ This is not a test channel!', flags: 64 });
-        }
+    if (commandName === 'done') {
+        const match = channel.name.match(/test-(.+)-(.+)/);
+        if (!match) return interaction.reply({ content: '❌ Not a test channel!', flags: 64 });
         
         const username = match[1];
         const kitName = match[2];
         let playerId = null;
         for (const [id, data] of Object.entries(db.players)) {
-            if (data.username === username) {
-                playerId = id;
-                break;
-            }
+            if (data.username === username) { playerId = id; break; }
         }
-        
-        if (!playerId) {
-            return interaction.reply({ content: '❌ Player not found!', flags: 64 });
-        }
+        if (!playerId) return interaction.reply({ content: '❌ Player not found!', flags: 64 });
         
         await showDoneModal(interaction, playerId, username, kitName);
         return;
     }
     
-    if (commandName === 'close' && (isTester || isAdmin)) {
-        await interaction.reply({ content: '🔒 Closing channel in 3 seconds...', flags: 64 });
+    if (commandName === 'close') {
+        await interaction.reply({ content: '🔒 Closing...', flags: 64 });
         setTimeout(() => channel.delete().catch(() => {}), 3000);
         return;
     }
     
-    if (commandName === 'notes' && (isTester || isAdmin)) {
+    if (commandName === 'notes') {
         const target = options.getMember('player');
         const note = options.getString('note');
-        
         if (!db.staffNotes[target.id]) db.staffNotes[target.id] = [];
-        db.staffNotes[target.id].push({
-            author: interaction.user.id,
-            note: note,
-            date: Date.now()
-        });
+        db.staffNotes[target.id].push({ author: interaction.user.id, note, date: Date.now() });
         saveData();
-        
         await interaction.reply({ content: `✅ Note added for ${target.user.tag}`, flags: 64 });
         return;
     }
     
-    if (commandName === 'warn' && (isTester || isAdmin)) {
+    if (commandName === 'warn') {
         const target = options.getMember('player');
         const reason = options.getString('reason');
-        
-        if (!db.players[target.id]) {
-            return interaction.reply({ content: '❌ Player not found!', flags: 64 });
-        }
-        
+        if (!db.players[target.id]) return interaction.reply({ content: '❌ Player not found!', flags: 64 });
         if (!db.players[target.id].warnings) db.players[target.id].warnings = [];
-        db.players[target.id].warnings.push({
-            by: interaction.user.id,
-            reason: reason,
-            date: Date.now()
-        });
+        db.players[target.id].warnings.push({ by: interaction.user.id, reason, date: Date.now() });
         saveData();
-        
-        try {
-            await target.send(`⚠️ **You have been warned in ${guild.name}**\n**Reason:** ${reason}\n**Staff:** ${interaction.user.tag}`);
-        } catch(e) {}
-        
-        await interaction.reply({ content: `⚠️ Warned ${target.user.tag} | Reason: ${reason}`, flags: 64 });
-        
-        const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL);
-        if (logChannel) logChannel.send(`⚠️ **${interaction.user.tag}** warned **${target.user.tag}** | ${reason}`);
+        try { await target.send(`⚠️ Warned in ${guild.name}: ${reason}`); } catch(e) {}
+        await interaction.reply({ content: `⚠️ Warned ${target.user.tag}`, flags: 64 });
         return;
     }
     
-    if (commandName === 'strike' && (isTester || isAdmin)) {
+    if (commandName === 'strike') {
         const target = options.getMember('player');
-        
-        if (!db.players[target.id]) {
-            return interaction.reply({ content: '❌ Player not found!', flags: 64 });
-        }
-        
+        if (!db.players[target.id]) return interaction.reply({ content: '❌ Player not found!', flags: 64 });
         db.players[target.id].strikes = (db.players[target.id].strikes || 0) + 1;
-        
         if (db.players[target.id].strikes >= 3) {
             db.blacklist.push(target.id);
-            try {
-                await target.send(`🚫 **You have been blacklisted from ${guild.name}**\nReason: 3 strikes. Contact staff for appeal.`);
-            } catch(e) {}
+            try { await target.send(`🚫 You have been blacklisted from ${guild.name}`); } catch(e) {}
         }
         saveData();
-        
-        await interaction.reply({ content: `⚠️ Strike added to ${target.user.tag} (${db.players[target.id].strikes}/3)`, flags: 64 });
+        await interaction.reply({ content: `⚠️ Strike (${db.players[target.id].strikes}/3)`, flags: 64 });
         return;
     }
     
-    if (commandName === 'blacklist' && (isTester || isAdmin)) {
+    if (commandName === 'blacklist') {
         const target = options.getMember('player');
-        
-        if (!db.blacklist.includes(target.id)) {
-            db.blacklist.push(target.id);
-            saveData();
-            
-            try {
-                await target.send(`🚫 **You have been blacklisted from ${guild.name}**\nYou can no longer request tests. Contact staff for appeal.`);
-            } catch(e) {}
-        }
-        
+        if (!db.blacklist.includes(target.id)) db.blacklist.push(target.id);
+        saveData();
         await interaction.reply({ content: `🚫 Blacklisted ${target.user.tag}`, flags: 64 });
         return;
     }
     
-    if (commandName === 'unblacklist' && (isTester || isAdmin)) {
+    if (commandName === 'unblacklist') {
         const target = options.getMember('player');
-        
         db.blacklist = db.blacklist.filter(id => id !== target.id);
         saveData();
-        
-        await interaction.reply({ content: `✅ Removed ${target.user.tag} from blacklist`, flags: 64 });
+        await interaction.reply({ content: `✅ Unblacklisted ${target.user.tag}`, flags: 64 });
         return;
     }
     
-    // ==================== ADMIN COMMANDS ====================
+    // Admin Commands
+    if (!isAdmin) return;
     
-    if (commandName === 'deploy' && isAdmin) {
+    if (commandName === 'deploy') {
         const kitName = options.getString('kit');
         const queueChannel = guild.channels.cache.find(c => c.name === QUEUE_CHANNEL);
-        
-        if (!queueChannel) {
-            return interaction.reply({ content: `❌ Channel #${QUEUE_CHANNEL} not found!`, flags: 64 });
-        }
+        if (!queueChannel) return interaction.reply({ content: `❌ #${QUEUE_CHANNEL} not found!`, flags: 64 });
         
         if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
-        
-        const embed = new EmbedBuilder()
-            .setTitle(`${KIT_SYMBOLS[kitName] || '⚔️'} ${kitName} QUEUE — Waiting: 0`)
-            .setColor(0x2C2F33)
-            .setDescription('Loading queue data...');
-        
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`queue_position:${kitName}`)
-                .setLabel('📍 WHERE AM I?')
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji('📍')
-        );
-        
-        const message = await queueChannel.send({ embeds: [embed], components: [row] });
-        db.queues[kitName].messageId = message.id;
+        const embed = new EmbedBuilder().setTitle(`${KIT_SYMBOLS[kitName] || '⚔️'} ${kitName} QUEUE`).setColor(0x2C2F33).setDescription('Loading...');
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`queue_position:${kitName}`).setLabel('📍 WHERE AM I?').setStyle(ButtonStyle.Secondary).setEmoji('📍'));
+        const msg = await queueChannel.send({ embeds: [embed], components: [row] });
+        db.queues[kitName].messageId = msg.id;
         saveData();
         await updateQueueEmbed(guild, kitName);
-        
-        setInterval(async () => {
-            const g = client.guilds.cache.get(GUILD_ID);
-            if (g) await updateQueueEmbed(g, kitName);
-        }, 60 * 60 * 1000);
-        
-        await interaction.reply({ content: `✅ Deployed ${kitName} queue embed in #${QUEUE_CHANNEL}!`, flags: 64 });
+        setInterval(async () => { const g = client.guilds.cache.get(GUILD_ID); if (g) await updateQueueEmbed(g, kitName); }, 60 * 60 * 1000);
+        await interaction.reply({ content: `✅ Deployed ${kitName} queue!`, flags: 64 });
         return;
     }
     
-    if (commandName === 'removequeue' && isAdmin) {
+    if (commandName === 'removequeue') {
         const kitName = options.getString('kit');
-        const queue = db.queues[kitName];
-        
-        if (queue && queue.messageId) {
-            const queueChannel = guild.channels.cache.find(c => c.name === QUEUE_CHANNEL);
-            if (queueChannel) {
-                const msg = await queueChannel.messages.fetch(queue.messageId).catch(() => null);
-                if (msg) await msg.delete().catch(() => {});
-            }
+        const q = db.queues[kitName];
+        if (q?.messageId) {
+            const ch = guild.channels.cache.find(c => c.name === QUEUE_CHANNEL);
+            if (ch) { const m = await ch.messages.fetch(q.messageId).catch(() => null); if (m) await m.delete(); }
         }
-        
         delete db.queues[kitName];
         saveData();
         await interaction.reply({ content: `✅ Removed ${kitName} queue!`, flags: 64 });
         return;
     }
     
-    if (commandName === 'refreshqueue' && isAdmin) {
-        const kitName = options.getString('kit');
-        await updateQueueEmbed(guild, kitName);
-        await interaction.reply({ content: `✅ Refreshed ${kitName} queue!`, flags: 64 });
+    if (commandName === 'refreshqueue') {
+        await updateQueueEmbed(guild, options.getString('kit'));
+        await interaction.reply({ content: '✅ Refreshed!', flags: 64 });
         return;
     }
     
-    if (commandName === 'kit' && isAdmin) {
+    if (commandName === 'kit') {
         const action = options.getString('action');
         const kitName = options.getString('kit');
         const image = options.getString('image');
-        
         if (action === 'add') {
-            if (!kitName || !image) return interaction.reply({ content: '❌ Usage: /kit add [kit] [image_url]', flags: 64 });
+            if (!kitName || !image) return interaction.reply({ content: '❌ /kit add [kit] [url]', flags: 64 });
             db.kits[kitName] = image;
             saveData();
-            await interaction.reply({ content: `✅ Kit **${kitName}** image added!`, flags: 64 });
+            await interaction.reply({ content: `✅ ${kitName} image added!`, flags: 64 });
         } else if (action === 'remove') {
-            if (!kitName) return interaction.reply({ content: '❌ Usage: /kit remove [kit]', flags: 64 });
+            if (!kitName) return interaction.reply({ content: '❌ /kit remove [kit]', flags: 64 });
             delete db.kits[kitName];
             saveData();
-            await interaction.reply({ content: `✅ Kit **${kitName}** image removed!`, flags: 64 });
-        } else if (action === 'list') {
-            const list = Object.keys(db.kits).join(', ') || 'No kits';
-            await interaction.reply({ content: `📦 **Kit Images:**\n${list}`, flags: 64 });
+            await interaction.reply({ content: `✅ ${kitName} removed!`, flags: 64 });
+        } else {
+            const list = Object.keys(db.kits).join(', ') || 'None';
+            await interaction.reply({ content: `📦 Kits:\n${list}`, flags: 64 });
         }
         return;
     }
     
-    if (commandName === 'check' && (isTester || isAdmin)) {
+    if (commandName === 'check') {
         const target = options.getMember('player');
         const data = db.players[target.id];
-        
-        if (!data) {
-            return interaction.reply({ content: `❌ ${target.user.tag} has not applied yet!`, flags: 64 });
-        }
-        
-        const totalPoints = calculateTotalPoints(target.id);
-        const title = getTitleFromPoints(totalPoints);
-        const isBlacklisted = db.blacklist.includes(target.id);
-        
-        let history = '';
-        for (let i = 0; i < Math.min(data.testHistory.length, 5); i++) {
-            const t = data.testHistory[i];
-            history += `• ${new Date(t.date).toLocaleDateString()} → ${t.kit}: ${t.rank} (+${t.pointsEarned}pts)\n`;
-        }
-        if (!history) history = '*No test history*';
-        
-        let warnings = '';
-        if (data.warnings) {
-            for (const w of data.warnings.slice(-3)) {
-                warnings += `• ${new Date(w.date).toLocaleDateString()}: ${w.reason}\n`;
-            }
-        }
-        if (!warnings) warnings = '*No warnings*';
-        
-        const embed = new EmbedBuilder()
-            .setColor(isBlacklisted ? 0xE74C3C : 0x3498DB)
-            .setTitle(`📊 ${target.user.tag}`)
-            .setDescription([
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `**Username:** ${data.username}`,
-                `**Region:** ${data.region}`,
-                `**Device:** ${data.device}`,
-                `**Title:** ${title.name}`,
-                `**Total Points:** ${totalPoints}`,
-                `**Status:** ${isBlacklisted ? '🚫 BLACKLISTED' : '✅ Active'}`,
-                `**Strikes:** ${data.strikes || 0}/3`,
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `**Recent Tests:**\n${history}`,
-                `**Recent Warnings:**\n${warnings}`,
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-            ].join('\n'));
-        
+        if (!data) return interaction.reply({ content: `❌ ${target.user.tag} not applied!`, flags: 64 });
+        const points = calculateTotalPoints(target.id);
+        const embed = new EmbedBuilder().setColor(0x3498DB).setTitle(`📊 ${target.user.tag}`).setDescription([
+            `**Username:** ${data.username}`,
+            `**Region:** ${data.region}`,
+            `**Title:** ${getTitleFromPoints(points).name}`,
+            `**Points:** ${points}`,
+            `**Strikes:** ${data.strikes || 0}/3`,
+            `**Blacklisted:** ${db.blacklist.includes(target.id) ? 'Yes' : 'No'}`
+        ].join('\n'));
         await interaction.reply({ embeds: [embed], flags: 64 });
         return;
     }
     
-    if (commandName === 'forcerank' && isAdmin) {
+    if (commandName === 'forcerank') {
         const target = options.getMember('player');
         const rank = options.getString('rank');
-        
         await setRank(guild, target.id, rank);
         if (db.players[target.id]) db.players[target.id].rank = rank;
         saveData();
-        await interaction.reply({ content: `✅ Set ${target.user.tag} to **${rank}**!`, flags: 64 });
+        await interaction.reply({ content: `✅ ${target.user.tag} → ${rank}`, flags: 64 });
         return;
     }
     
-    if (commandName === 'setpoints' && isAdmin) {
+    if (commandName === 'setpoints') {
         const target = options.getMember('player');
         const points = options.getInteger('points');
-        
-        if (!db.players[target.id]) {
-            return interaction.reply({ content: `❌ ${target.user.tag} has not applied yet!`, flags: 64 });
-        }
-        
+        if (!db.players[target.id]) return interaction.reply({ content: '❌ Player not applied!', flags: 64 });
         db.players[target.id].manualPoints = points;
         await updateTitleRole(guild, target.id);
         saveData();
-        await interaction.reply({ content: `✅ Set ${target.user.tag}'s points to **${points}**!`, flags: 64 });
+        await interaction.reply({ content: `✅ ${target.user.tag} → ${points} pts`, flags: 64 });
         return;
     }
     
-    if (commandName === 'reset' && isAdmin) {
+    if (commandName === 'reset') {
         const target = options.getMember('player');
         delete db.players[target.id];
         saveData();
-        
         const applicantRole = await getRole(guild, APPLICANT_ROLE);
-        if (applicantRole && target.roles.cache.has(applicantRole.id)) {
-            await target.roles.remove(applicantRole);
-        }
-        
-        for (const rank of RANK_ROLES) {
-            const role = await getRole(guild, rank);
-            if (role && target.roles.cache.has(role.id)) await target.roles.remove(role);
-        }
-        
-        for (const title of TITLES) {
-            const role = await getRole(guild, title.role);
-            if (role && target.roles.cache.has(role.id)) await target.roles.remove(role);
-        }
-        
-        await interaction.reply({ content: `✅ Reset ${target.user.tag} completely!`, flags: 64 });
+        if (applicantRole && target.roles.cache.has(applicantRole.id)) await target.roles.remove(applicantRole);
+        for (const rank of RANK_ROLES) { const r = await getRole(guild, rank); if (r && target.roles.cache.has(r.id)) await target.roles.remove(r); }
+        for (const t of TITLES) { const r = await getRole(guild, t.role); if (r && target.roles.cache.has(r.id)) await target.roles.remove(r); }
+        await interaction.reply({ content: `✅ Reset ${target.user.tag}`, flags: 64 });
         return;
     }
     
-    if (commandName === 'recalculate' && isAdmin) {
+    if (commandName === 'recalculate') {
         const target = options.getMember('player');
         const points = calculateTotalPoints(target.id);
         await updateTitleRole(guild, target.id);
-        await interaction.reply({ content: `✅ Recalculated ${target.user.tag}: ${points} points`, flags: 64 });
+        await interaction.reply({ content: `✅ ${target.user.tag}: ${points} pts`, flags: 64 });
         return;
     }
     
-    if (commandName === 'export' && isAdmin) {
-        let csv = 'User ID,Username,Region,Device,Total Points,Rank,Strikes,Blacklisted\n';
+    if (commandName === 'export') {
+        let csv = 'User ID,Username,Region,Device,Points,Rank,Strikes,Blacklisted\n';
         for (const [id, data] of Object.entries(db.players)) {
             csv += `${id},${data.username},${data.region},${data.device},${calculateTotalPoints(id)},${data.rank || 'None'},${data.strikes || 0},${db.blacklist.includes(id) ? 'Yes' : 'No'}\n`;
         }
-        
         fs.writeFileSync('export.csv', csv);
-        await interaction.reply({ content: '✅ Data exported!', files: [{ attachment: 'export.csv', name: 'player_data.csv' }], flags: 64 });
+        await interaction.reply({ content: '✅ Exported!', files: [{ attachment: 'export.csv', name: 'players.csv' }], flags: 64 });
         fs.unlinkSync('export.csv');
         return;
     }
     
-    if (commandName === 'backup' && isAdmin) {
-        const backup = JSON.stringify(db, null, 2);
-        fs.writeFileSync(`backup_${Date.now()}.json`, backup);
-        await interaction.reply({ content: '✅ Database backup created!', flags: 64 });
+    if (commandName === 'backup') {
+        fs.writeFileSync(`backup_${Date.now()}.json`, JSON.stringify(db, null, 2));
+        await interaction.reply({ content: '✅ Backup created!', flags: 64 });
         return;
     }
     
-    if (commandName === 'announce' && isAdmin) {
-        const message = options.getString('message');
+    if (commandName === 'announce') {
+        const msg = options.getString('message');
         const testerRole = await getRole(guild, 'Tester');
-        
-        if (testerRole) {
-            const channel = guild.channels.cache.find(c => c.name === TESTER_PANEL_CHANNEL);
-            if (channel) {
-                await channel.send({ content: `${testerRole.toString()}`, embeds: [
-                    new EmbedBuilder()
-                        .setColor(0xF1C40F)
-                        .setTitle('📢 ANNOUNCEMENT')
-                        .setDescription(message)
-                        .setTimestamp()
-                ] });
-            }
-        }
-        
-        await interaction.reply({ content: '✅ Announcement sent!', flags: 64 });
+        const ch = guild.channels.cache.find(c => c.name === TESTER_PANEL_CHANNEL);
+        if (testerRole && ch) await ch.send({ content: testerRole.toString(), embeds: [new EmbedBuilder().setColor(0xF1C40F).setTitle('📢 ANNOUNCEMENT').setDescription(msg).setTimestamp()] });
+        await interaction.reply({ content: '✅ Sent!', flags: 64 });
         return;
     }
     
-    if (commandName === 'audit' && isAdmin) {
+    if (commandName === 'audit') {
         const target = options.getMember('player');
         const notes = db.staffNotes[target.id] || [];
-        
-        let auditText = '';
-        for (const note of notes.slice(-10)) {
-            auditText += `• ${new Date(note.date).toLocaleString()} - <@${note.author}>: ${note.note}\n`;
-        }
-        if (!auditText) auditText = '*No staff notes*';
-        
-        const embed = new EmbedBuilder()
-            .setColor(0xE67E22)
-            .setTitle(`📋 Audit Log: ${target.user.tag}`)
-            .setDescription(auditText);
-        
+        let text = '';
+        for (const n of notes.slice(-10)) text += `• ${new Date(n.date).toLocaleString()} - <@${n.author}>: ${n.note}\n`;
+        const embed = new EmbedBuilder().setColor(0xE67E22).setTitle(`📋 Audit: ${target.user.tag}`).setDescription(text || '*No notes*');
         await interaction.reply({ embeds: [embed], flags: 64 });
         return;
     }
     
-    if (commandName === 'setcooldown' && isAdmin) {
-        const minutes = options.getInteger('minutes');
-        db.settings.cooldown = minutes;
+    if (commandName === 'setcooldown') {
+        db.settings.cooldown = options.getInteger('minutes');
         saveData();
-        await interaction.reply({ content: `✅ Request cooldown set to ${minutes} minutes!`, flags: 64 });
+        await interaction.reply({ content: `✅ Cooldown: ${db.settings.cooldown} min`, flags: 64 });
         return;
     }
     
-    if (commandName === 'maxqueue' && isAdmin) {
-        const kit = options.getString('kit');
-        const size = options.getInteger('size');
-        db.settings.maxQueueSize = size;
+    if (commandName === 'maxqueue') {
+        db.settings.maxQueueSize = options.getInteger('size');
         saveData();
-        await interaction.reply({ content: `✅ Max queue size for ${kit} set to ${size}!`, flags: 64 });
+        await interaction.reply({ content: `✅ Max queue size: ${db.settings.maxQueueSize}`, flags: 64 });
         return;
     }
     
