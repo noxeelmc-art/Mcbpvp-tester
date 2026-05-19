@@ -22,11 +22,11 @@ const GUILD_ID = process.env.GUILD_ID;
 
 // ==================== CONFIGURATION ====================
 const APPLICANT_ROLE = 'Combat Learner';
-const APPLY_CHANNEL = 'apply';
-const QUEUE_CHANNEL = 'queue';
-const RESULTS_CHANNEL = 'test-results';
-const LOG_CHANNEL = 'staff-logs';
-const TESTER_PANEL_CHANNEL = 'test-panels';
+const APPLY_CHANNEL = '📝・apply';
+const QUEUE_CHANNEL = '⏳・queue';
+const RESULTS_CHANNEL = '📜｜test-results';
+const LOG_CHANNEL = '🔒｜staff-logs';
+const TESTER_PANEL_CHANNEL = '🎮・test-panel';
 const QUEUE_CATEGORY = 'TIER TESTING';
 
 // Rank roles
@@ -47,7 +47,7 @@ const TITLES = [
     { name: 'Combat Grandmaster', minPoints: 330, role: 'Combat Grandmaster' }
 ];
 
-// Custom kit symbols (replace with your emoji IDs after uploading)
+// Custom kit symbols (your uploaded emojis)
 const KIT_SYMBOLS = {
     'Sword': '<:sword_custom:>',
     'Axe': '<:axe_custom:>',
@@ -269,9 +269,9 @@ async function updateQueueEmbed(guild, kitName) {
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(`queue_position:${kitName}`)
-            .setLabel('📍 WHERE AM I?')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📍')
+            .setLabel('🏃‍♂️ MY POSITION')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🏃‍♂️')
     );
     
     const message = await channel.messages.fetch(queue.messageId).catch(() => null);
@@ -282,6 +282,82 @@ async function updateQueueEmbed(guild, kitName) {
         db.queues[kitName].messageId = newMsg.id;
         saveData();
     }
+}
+
+// ==================== SEND PANEL COMMANDS ====================
+async function sendApplyPanel(channel) {
+    const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🔐 TIER TESTING SYSTEM')
+        .setDescription([
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+            `**Welcome to MCBPVP Club Tier Testing!**`,
+            ``,
+            `**How it works:**`,
+            `• Click VERIFY to link your Minecraft account`,
+            `• Get the **Combat Learner** role`,
+            `• Click REQUEST to join any kit queue`,
+            `• Testers will pick you automatically`,
+            ``,
+            `**What you get:**`,
+            `• Rank up from LT5 → HT1`,
+            `• Earn points for each rank up`,
+            `• Unlock titles: Combat Master, Grandmaster`,
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+        ].join('\n'))
+        .setFooter({ text: 'MCBPVP Club | Tier Testing System' })
+        .setTimestamp();
+    
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('apply_button')
+            .setLabel('✅ VERIFY NOW')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+        new ButtonBuilder()
+            .setCustomId('request_button')
+            .setLabel('🚀 REQUEST TEST')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🚀')
+    );
+    
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('profile_button')
+            .setLabel('👤 MY PROFILE')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('👤')
+    );
+    
+    await channel.send({ embeds: [embed], components: [row1, row2] });
+}
+
+async function sendTesterPanel(channel) {
+    const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🎮 TESTER CONTROL PANEL')
+        .setDescription([
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+            `**Queue Commands:**`,
+            `\`/queue <kit>\` - View waiting players`,
+            `\`/claim @player\` - Claim player from queue`,
+            `\`/testnow @player\` - Start test`,
+            ``,
+            `**Test Commands:**`,
+            `\`/start\` - Begin test timer`,
+            `\`/done\` - Submit results`,
+            `\`/close\` - Force close channel`,
+            ``,
+            `**Staff Tools:**`,
+            `\`/warn @user\` - Warn player`,
+            `\`/blacklist @user\` - Ban from testing`,
+            `\`/check @user\` - View player info`,
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+        ].join('\n'))
+        .setFooter({ text: 'MCBPVP Club | Tester Panel' })
+        .setTimestamp();
+    
+    await channel.send({ embeds: [embed] });
 }
 
 // ==================== MODALS ====================
@@ -355,7 +431,7 @@ async function showDoneModal(interaction, playerId, playerName, kitName) {
     await interaction.showModal(modal);
 }
 
-// ==================== REGISTER COMMANDS (FIXED) ====================
+// ==================== REGISTER COMMANDS ====================
 async function registerCommands() {
     const kitChoices = GAMEMODES.map(k => ({ name: k.name, value: k.name }));
     
@@ -495,12 +571,117 @@ client.once('ready', async () => {
         }
     }
     
+    // Send panels to channels
+    const applyChannel = guild.channels.cache.find(c => c.name === APPLY_CHANNEL);
+    const testerChannel = guild.channels.cache.find(c => c.name === TESTER_PANEL_CHANNEL);
+    
+    if (applyChannel) await sendApplyPanel(applyChannel);
+    if (testerChannel) await sendTesterPanel(testerChannel);
+    
     console.log(`\n✅ Ready! | ${GAMEMODES.length} gamemodes loaded`);
     console.log(`📌 Use /help to see all commands`);
 });
 
 // ==================== INTERACTION HANDLER ====================
 client.on('interactionCreate', async interaction => {
+    // Buttons
+    if (interaction.isButton()) {
+        if (interaction.customId === 'apply_button') {
+            await showApplyModal(interaction);
+            return;
+        }
+        
+        if (interaction.customId === 'request_button') {
+            if (!db.players[interaction.user.id]) {
+                return interaction.reply({ content: '❌ You need to verify first! Click VERIFY NOW.', flags: 64 });
+            }
+            
+            const row = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('request_menu')
+                    .setPlaceholder('Select a gamemode')
+                    .addOptions(GAMEMODES.map(k => ({ label: k.name, value: k.name, description: `Join ${k.name} queue` })))
+            );
+            
+            await interaction.reply({ content: '🎮 **Select a gamemode to test:**', components: [row], flags: 64 });
+            return;
+        }
+        
+        if (interaction.customId === 'profile_button') {
+            if (!db.players[interaction.user.id]) {
+                return interaction.reply({ content: '❌ You need to verify first! Click VERIFY NOW.', flags: 64 });
+            }
+            await showProfile(interaction, interaction.user);
+            return;
+        }
+        
+        if (interaction.customId.startsWith('queue_position:')) {
+            const kit = interaction.customId.split(':')[1];
+            const queue = db.queues[kit];
+            if (!queue) {
+                return interaction.reply({ content: '❌ Queue not found!', flags: 64 });
+            }
+            
+            const position = queue.waiting.indexOf(interaction.user.id);
+            if (position === -1) {
+                return interaction.reply({ content: '❌ You are not in this queue!', flags: 64 });
+            }
+            
+            const embed = new EmbedBuilder()
+                .setColor(0x2ECC71)
+                .setTitle(`📍 Your Position in ${kit} Queue`)
+                .setDescription([
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                    `**Position:** #${position + 1} out of ${queue.waiting.length}`,
+                    `**Players ahead:** ${position}`,
+                    `**Estimated wait:** ~${position * 10} minutes`,
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+                    `You will be notified when a tester picks you!`
+                ].join('\n'));
+            
+            await interaction.reply({ embeds: [embed], flags: 64 });
+            return;
+        }
+    }
+    
+    // Select Menus
+    if (interaction.isStringSelectMenu() && interaction.customId === 'request_menu') {
+        const kitName = interaction.values[0];
+        
+        if (!db.players[interaction.user.id]) {
+            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
+        }
+        
+        if (db.blacklist.includes(interaction.user.id)) {
+            return interaction.reply({ content: '❌ You are blacklisted! Contact staff.', flags: 64 });
+        }
+        
+        const player = db.players[interaction.user.id];
+        const cooldownRemaining = (player.lastRequestAt + db.settings.cooldown * 60 * 1000) - Date.now();
+        if (cooldownRemaining > 0) {
+            const minutes = Math.ceil(cooldownRemaining / 60000);
+            return interaction.reply({ content: `❌ Please wait ${minutes} minutes!`, flags: 64 });
+        }
+        
+        if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
+        
+        if (db.queues[kitName].waiting.length >= db.settings.maxQueueSize) {
+            return interaction.reply({ content: `❌ ${kitName} queue is full!`, flags: 64 });
+        }
+        
+        if (db.queues[kitName].waiting.includes(interaction.user.id)) {
+            return interaction.reply({ content: '❌ You are already in this queue!', flags: 64 });
+        }
+        
+        db.queues[kitName].waiting.push(interaction.user.id);
+        player.lastRequestAt = Date.now();
+        saveData();
+        
+        await updateQueueEmbed(interaction.guild, kitName);
+        await interaction.reply({ content: `✅ Added to **${kitName}** queue at position #${db.queues[kitName].waiting.length}!`, flags: 64 });
+        return;
+    }
+    
     // Modals
     if (interaction.isModalSubmit()) {
         if (interaction.customId === 'apply_modal') {
@@ -538,7 +719,7 @@ client.on('interactionCreate', async interaction => {
             const embed = new EmbedBuilder()
                 .setColor(0x2ECC71)
                 .setTitle('✅ Application Submitted!')
-                .setDescription(`**Welcome, ${interaction.user.username}!**\n\nYou are now a **Combat Learner**.\n\nUse \`/request\` to request a test!`)
+                .setDescription(`**Welcome, ${interaction.user.username}!**\n\nYou are now a **Combat Learner**.\n\nUse the **REQUEST TEST** button to request a test!`)
                 .addFields(
                     { name: '📝 Username', value: username, inline: true },
                     { name: '🌍 Region', value: region, inline: true },
@@ -628,73 +809,6 @@ client.on('interactionCreate', async interaction => {
         }
     }
     
-    // Buttons
-    if (interaction.isButton() && interaction.customId.startsWith('queue_position:')) {
-        const kit = interaction.customId.split(':')[1];
-        const queue = db.queues[kit];
-        if (!queue) {
-            return interaction.reply({ content: '❌ Queue not found!', flags: 64 });
-        }
-        
-        const position = queue.waiting.indexOf(interaction.user.id);
-        if (position === -1) {
-            return interaction.reply({ content: '❌ You are not in this queue!', flags: 64 });
-        }
-        
-        const embed = new EmbedBuilder()
-            .setColor(0x2ECC71)
-            .setTitle(`📍 Your Position in ${kit} Queue`)
-            .setDescription([
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `**Position:** #${position + 1} out of ${queue.waiting.length}`,
-                `**Players ahead:** ${position}`,
-                `**Estimated wait:** ~${position * 10} minutes`,
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-                `You will be notified when a tester picks you!`
-            ].join('\n'));
-        
-        await interaction.reply({ embeds: [embed], flags: 64 });
-        return;
-    }
-    
-    // Select Menus
-    if (interaction.isStringSelectMenu() && interaction.customId === 'request_menu') {
-        const kitName = interaction.values[0];
-        
-        if (!db.players[interaction.user.id]) {
-            return interaction.reply({ content: '❌ You need to `/apply` first!', flags: 64 });
-        }
-        
-        if (db.blacklist.includes(interaction.user.id)) {
-            return interaction.reply({ content: '❌ You are blacklisted! Contact staff.', flags: 64 });
-        }
-        
-        const player = db.players[interaction.user.id];
-        const cooldownRemaining = (player.lastRequestAt + db.settings.cooldown * 60 * 1000) - Date.now();
-        if (cooldownRemaining > 0) {
-            const minutes = Math.ceil(cooldownRemaining / 60000);
-            return interaction.reply({ content: `❌ Please wait ${minutes} minutes!`, flags: 64 });
-        }
-        
-        if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
-        
-        if (db.queues[kitName].waiting.length >= db.settings.maxQueueSize) {
-            return interaction.reply({ content: `❌ ${kitName} queue is full!`, flags: 64 });
-        }
-        
-        if (db.queues[kitName].waiting.includes(interaction.user.id)) {
-            return interaction.reply({ content: '❌ You are already in this queue!', flags: 64 });
-        }
-        
-        db.queues[kitName].waiting.push(interaction.user.id);
-        player.lastRequestAt = Date.now();
-        saveData();
-        
-        await updateQueueEmbed(interaction.guild, kitName);
-        await interaction.reply({ content: `✅ Added to **${kitName}** queue at position #${db.queues[kitName].waiting.length}!`, flags: 64 });
-        return;
-    }
-    
     // Slash Commands
     if (!interaction.isChatInputCommand()) return;
     
@@ -706,7 +820,7 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'apply') {
         const applyChannel = guild.channels.cache.find(c => c.name === APPLY_CHANNEL);
         if (channel.id !== applyChannel?.id) {
-            return interaction.reply({ content: `❌ Use this command in #${APPLY_CHANNEL}!`, flags: 64 });
+            return interaction.reply({ content: `❌ Use this command in ${APPLY_CHANNEL}!`, flags: 64 });
         }
         await showApplyModal(interaction);
         return;
@@ -1038,11 +1152,11 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'deploy') {
         const kitName = options.getString('kit');
         const queueChannel = guild.channels.cache.find(c => c.name === QUEUE_CHANNEL);
-        if (!queueChannel) return interaction.reply({ content: `❌ #${QUEUE_CHANNEL} not found!`, flags: 64 });
+        if (!queueChannel) return interaction.reply({ content: `❌ ${QUEUE_CHANNEL} not found!`, flags: 64 });
         
         if (!db.queues[kitName]) db.queues[kitName] = { waiting: [], testing: [], messageId: null };
         const embed = new EmbedBuilder().setTitle(`${KIT_SYMBOLS[kitName] || '⚔️'} ${kitName} QUEUE`).setColor(0x2C2F33).setDescription('Loading...');
-        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`queue_position:${kitName}`).setLabel('📍 WHERE AM I?').setStyle(ButtonStyle.Secondary).setEmoji('📍'));
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`queue_position:${kitName}`).setLabel('🏃‍♂️ MY POSITION').setStyle(ButtonStyle.Primary).setEmoji('🏃‍♂️'));
         const msg = await queueChannel.send({ embeds: [embed], components: [row] });
         db.queues[kitName].messageId = msg.id;
         saveData();
