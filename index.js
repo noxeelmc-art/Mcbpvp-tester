@@ -22,13 +22,14 @@ const GUILD_ID = process.env.GUILD_ID;
 
 // ==================== CONFIGURATION ====================
 const APPLICANT_ROLE = 'Combat Learner';
-const APPLY_CHANNEL = '📝・apply';
+const APPLY_CHANNEL = '🎉・apply';
 const QUEUE_CHANNEL = '⏳・queue';
 const RESULTS_CHANNEL = '📜｜test-results';
 const LOG_CHANNEL = '🔒｜staff-logs';
 const TESTER_PANEL_CHANNEL = '🎮・test-panel';
+const QUEUE_CATEGORY = 'TIER TESTING';
 
-// Title images (your custom images)
+// Title images
 const TITLE_IMAGES = {
     'Combat Learner': 'https://cdn.discordapp.com/attachments/1491042296215506964/1506560043921834034/Picsart_26-05-20_12-54-04-858.png',
     'Combat Cadet': 'https://cdn.discordapp.com/attachments/1491042296215506964/1506560298017099867/Picsart_26-05-20_12-55-32-940.png',
@@ -110,6 +111,7 @@ let db = {
     staffNotes: {},
     strikes: {},
     blacklist: [],
+    testers: {},
     settings: { cooldown: 5, maxQueueSize: 20 }
 };
 
@@ -195,6 +197,95 @@ async function setRank(guild, userId, newRank) {
         await member.roles.add(newRankRole);
     }
     return true;
+}
+
+// ==================== TESTER PROFILE ====================
+async function showTesterProfile(interaction, targetUser) {
+    const testerData = db.testers[targetUser.id];
+    if (!testerData) {
+        return interaction.reply({ content: `❌ ${targetUser.username} is not registered as a tester! Use /settester to add them.`, flags: 64 });
+    }
+    
+    const kitSymbol = KIT_SYMBOLS[testerData.kit] || '🎮';
+    const totalTests = db.players[targetUser.id]?.testHistory?.length || 0;
+    
+    const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setAuthor({ name: targetUser.username, iconURL: targetUser.displayAvatarURL() })
+        .setTitle(`${kitSymbol} ${testerData.kit} TESTER`)
+        .setDescription([
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+            `**🏆 Tier:** ${testerData.tier || 'Not set'}`,
+            `**🌍 Region:** ${testerData.region || 'Not set'}`,
+            `**⏰ Active Hours:** ${testerData.activeHours || 'Not set'}`,
+            `**📊 Tests Conducted:** ${totalTests}`,
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+            `**📝 Bio:**`,
+            `${testerData.bio || 'No bio set.'}`,
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+        ].join('\n'))
+        .setFooter({ text: 'Tester Profile • Updated by staff' })
+        .setTimestamp();
+    
+    await interaction.reply({ embeds: [embed], flags: 64 });
+}
+
+async function showTesterSetupModal(interaction, targetUser) {
+    const existing = db.testers[targetUser.id] || {};
+    
+    const modal = new ModalBuilder()
+        .setCustomId(`tester_modal:${targetUser.id}`)
+        .setTitle(`Set Tester: ${targetUser.username}`);
+    
+    const kitInput = new TextInputBuilder()
+        .setCustomId('kit')
+        .setLabel('Kit (Sword, Axe, Crystal, etc.)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('Sword / Axe / Crystal / Mace HT / etc.')
+        .setValue(existing.kit || '');
+    
+    const tierInput = new TextInputBuilder()
+        .setCustomId('tier')
+        .setLabel('Tier (LT5 to HT1)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('HT3 / LT2 / etc.')
+        .setValue(existing.tier || '');
+    
+    const regionInput = new TextInputBuilder()
+        .setCustomId('region')
+        .setLabel('Region')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('EU / NA / ASIA / etc.')
+        .setValue(existing.region || '');
+    
+    const hoursInput = new TextInputBuilder()
+        .setCustomId('hours')
+        .setLabel('Active Hours')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('10 AM - 12 AM')
+        .setValue(existing.activeHours || '');
+    
+    const bioInput = new TextInputBuilder()
+        .setCustomId('bio')
+        .setLabel('Bio (optional)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false)
+        .setPlaceholder('About this tester...')
+        .setValue(existing.bio || '');
+    
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(kitInput),
+        new ActionRowBuilder().addComponents(tierInput),
+        new ActionRowBuilder().addComponents(regionInput),
+        new ActionRowBuilder().addComponents(hoursInput),
+        new ActionRowBuilder().addComponents(bioInput)
+    );
+    
+    await interaction.showModal(modal);
 }
 
 // ==================== PROFILE COMMAND ====================
@@ -367,13 +458,15 @@ async function sendTesterPanel(channel) {
             ``,
             `**Test Commands:**`,
             `\`/start\` - Begin test timer`,
-            `\`/done\` - Submit results`,
+            `\`/done\` - Complete test`,
             `\`/close\` - Force close channel`,
             ``,
             `**Staff Tools:**`,
             `\`/warn @user\` - Warn player`,
             `\`/blacklist @user\` - Ban from testing`,
             `\`/check @user\` - View player info`,
+            `\`/tester @user\` - View tester profile`,
+            `\`/settester @user\` - Set tester profile`,
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
         ].join('\n'))
         .setFooter({ text: 'MCBPVP Club | Tester Panel' })
@@ -483,6 +576,9 @@ async function registerCommands() {
         { name: 'start', description: 'Start the test timer' },
         { name: 'done', description: 'Complete the current test' },
         { name: 'close', description: 'Force close the test channel' },
+        { name: 'tester', description: 'View tester profile', options: [{ name: 'user', type: 6, description: 'Tester to view', required: true }] },
+        { name: 'settester', description: '[Admin] Set tester profile', options: [{ name: 'user', type: 6, description: 'Tester to configure', required: true }] },
+        { name: 'removetester', description: '[Admin] Remove tester profile', options: [{ name: 'user', type: 6, description: 'Tester to remove', required: true }] },
         { name: 'notes', description: 'Add private note about a player', options: [{ name: 'player', type: 6, description: 'Player', required: true }, { name: 'note', type: 3, description: 'Note content', required: true }] },
         { name: 'warn', description: 'Warn a player', options: [{ name: 'player', type: 6, description: 'Player to warn', required: true }, { name: 'reason', type: 3, description: 'Warning reason', required: true }] },
         { name: 'strike', description: 'Add a strike to a player', options: [{ name: 'player', type: 6, description: 'Player', required: true }] },
@@ -550,6 +646,7 @@ async function showHelp(interaction) {
             `\`/start\` - Begin test`,
             `\`/done\` - Complete test`,
             `\`/close\` - Force close`,
+            `\`/tester @user\` - View tester profile`,
             `\`/notes @user\` - Add note`,
             `\`/warn @user\` - Warn player`,
             `\`/strike @user\` - Add strike`,
@@ -557,6 +654,8 @@ async function showHelp(interaction) {
             `\`/unblacklist @user\` - Remove ban`,
             ``,
             `**⚙️ ADMIN COMMANDS**`,
+            `\`/settester @user\` - Set tester profile`,
+            `\`/removetester @user\` - Remove tester`,
             `\`/deploy queue <kit>\` - Deploy queue`,
             `\`/removequeue <kit>\` - Remove queue`,
             `\`/sendpanel apply/tester\` - Send panels`,
@@ -610,7 +709,6 @@ client.once('ready', async () => {
         }
     }
     
-    // Send panels to channels
     const applyChannel = guild.channels.cache.find(c => c.name === APPLY_CHANNEL);
     const testerChannel = guild.channels.cache.find(c => c.name === TESTER_PANEL_CHANNEL);
     
@@ -779,6 +877,39 @@ client.on('interactionCreate', async interaction => {
             return;
         }
         
+        if (interaction.customId.startsWith('tester_modal:')) {
+            const targetId = interaction.customId.split(':')[1];
+            const kit = interaction.fields.getTextInputValue('kit');
+            const tier = interaction.fields.getTextInputValue('tier');
+            const region = interaction.fields.getTextInputValue('region');
+            const activeHours = interaction.fields.getTextInputValue('hours');
+            const bio = interaction.fields.getTextInputValue('bio') || 'No bio set.';
+            
+            db.testers[targetId] = {
+                kit,
+                tier,
+                region,
+                activeHours,
+                bio,
+                setBy: interaction.user.id,
+                setAt: Date.now()
+            };
+            saveData();
+            
+            // Add tester role if exists
+            const kitData = GAMEMODES.find(k => k.name.toLowerCase() === kit.toLowerCase());
+            if (kitData) {
+                const role = await getRole(interaction.guild, kitData.testerRole);
+                const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+                if (role && member && !member.roles.cache.has(role.id)) {
+                    await member.roles.add(role);
+                }
+            }
+            
+            await interaction.reply({ content: `✅ Tester profile set for <@${targetId}>!`, flags: 64 });
+            return;
+        }
+        
         if (interaction.customId.startsWith('done_modal:')) {
             const parts = interaction.customId.split(':');
             const playerId = parts[1];
@@ -926,6 +1057,26 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'profile') {
         const targetUser = options.getUser('user') || interaction.user;
         await showProfile(interaction, targetUser);
+        return;
+    }
+    
+    if (commandName === 'tester') {
+        const targetUser = options.getUser('user');
+        await showTesterProfile(interaction, targetUser);
+        return;
+    }
+    
+    if (commandName === 'settester' && isAdmin) {
+        const targetUser = options.getUser('user');
+        await showTesterSetupModal(interaction, targetUser);
+        return;
+    }
+    
+    if (commandName === 'removetester' && isAdmin) {
+        const targetUser = options.getUser('user');
+        delete db.testers[targetUser.id];
+        saveData();
+        await interaction.reply({ content: `✅ Removed tester profile for ${targetUser.username}`, flags: 64 });
         return;
     }
     
